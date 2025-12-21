@@ -1,4 +1,6 @@
-from PyQt6.QtWidgets import (QWidget, QVBoxLayout, QPushButton, QLabel)
+from PyQt6.QtWidgets import (QApplication, QWidget, QVBoxLayout, QPushButton, QLabel)
+from PyQt6.QtGui import QPixmap
+from PyQt6.QtCore import Qt
 
 class PaymentScreen(QWidget):
     def __init__(self, switch_callback):
@@ -8,65 +10,35 @@ class PaymentScreen(QWidget):
     
     def init_ui(self):
         layout = QVBoxLayout()
-        
-        title = QLabel("결제")
-        title.setStyleSheet("font-size: 36px; font-weight: bold;")
-        
-        amount = QLabel("총액: 9,500원")
-        amount.setStyleSheet("font-size: 28px; margin: 30px;")
-        
-        layout.addWidget(title)
-        layout.addWidget(amount)
-        layout.addSpacing(40)
-        
-        # 결제 방법 버튼들
-        card_btn = QPushButton("카드 결제")
-        card_btn.setStyleSheet("""
-            QPushButton {
-                font-size: 24px;
-                padding: 30px;
-                background-color: #4CAF50;
-                color: white;
-                border: none;
-                border-radius: 10px;
-            }
-        """)
-        card_btn.clicked.connect(self.complete_payment)
-        
-        cash_btn = QPushButton("현금 결제")
-        cash_btn.setStyleSheet("""
-            QPushButton {
-                font-size: 24px;
-                padding: 30px;
-                background-color: #4CAF50;
-                color: white;
-                border: none;
-                border-radius: 10px;
-            }
-        """)
-        cash_btn.clicked.connect(self.complete_payment)
-        
-        back_btn = QPushButton("뒤로")
-        back_btn.setStyleSheet("""
-            QPushButton {
-                font-size: 20px;
-                padding: 15px;
-                background-color: #9E9E9E;
-                color: white;
-                border: none;
-                border-radius: 5px;
-            }
-        """)
-        back_btn.clicked.connect(lambda: self.switch_callback('product'))
-        
-        layout.addWidget(card_btn)
-        layout.addWidget(cash_btn)
-        layout.addSpacing(30)
-        layout.addWidget(back_btn)
+
+        image = QLabel()
+
+        layout.addSpacing(400)
+        title = QLabel("카드를 태그해 주세요!")
+        title.setStyleSheet("font-size: 48px; font-weight: bold;")
+        title.setAlignment(Qt.AlignmentFlag.AlignCenter)
+        layout.addWidget(title, alignment=Qt.AlignmentFlag.AlignCenter)
+
+        pixmap = QPixmap('../data/payment.png')
+        scaled_pixmap = pixmap.scaled(600, 600, Qt.AspectRatioMode.KeepAspectRatio, Qt.TransformationMode.SmoothTransformation)
+        image.setPixmap(scaled_pixmap)
+        image.setAlignment(Qt.AlignmentFlag.AlignCenter)
+        layout.addWidget(image, alignment=Qt.AlignmentFlag.AlignCenter)
+
         layout.addStretch()
         
         self.setLayout(layout)
+
+
+# 테스트 코드
+if __name__ == '__main__':
+    import sys
+    app = QApplication(sys.argv)
     
-    def complete_payment(self):
-        print("결제 완료!")
-        self.switch_callback('home')
+    def dummy_callback():
+        print("Callback called")
+    
+    window = PaymentScreen(dummy_callback)
+    window.show()
+    
+    sys.exit(app.exec())
