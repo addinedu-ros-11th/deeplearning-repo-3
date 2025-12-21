@@ -102,7 +102,7 @@ class CheckScreen(QWidget):
                 background-color: #E55A0F;
             }
         """)
-        pay_btn.clicked.connect(self.complete_payment)
+        pay_btn.clicked.connect(lambda: self.switch_callback('payment'))
         
         button_layout.addWidget(call_btn)
         button_layout.addWidget(pay_btn)
