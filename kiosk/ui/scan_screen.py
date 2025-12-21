@@ -1,4 +1,4 @@
-from PyQt6.QtWidgets import (QWidget, QVBoxLayout, QPushButton, QLabel)
+from PyQt6.QtWidgets import (QApplication, QWidget, QVBoxLayout, QPushButton, QLabel)
 
 class ProductScreen(QWidget):
     def __init__(self, switch_callback):
@@ -6,7 +6,7 @@ class ProductScreen(QWidget):
         self.switch_callback = switch_callback
         self.selected_items = []
         self.init_ui()
-    
+
     def init_ui(self):
         layout = QVBoxLayout()
         
@@ -48,31 +48,39 @@ class ProductScreen(QWidget):
         payment_btn = QPushButton("결제하기")
         payment_btn.setStyleSheet("""
             QPushButton {
-                font-size: 20px;
+                font-size: 70px;
                 padding: 15px;
-                background-color: #FF9800;
+                background-color: #FF6D1F;
                 color: white;
                 border: none;
-                border-radius: 5px;
+                border-radius: 30px;
+            }
+            QPushButton:hover {
+                background-color: #E55A0F;
             }
         """)
-        payment_btn.clicked.connect(lambda: self.switch_callback('check'))
+        #payment_btn.clicked.connect(lambda: self.switch_callback('check'))
+        payment_btn.clicked.connect(lambda a : print("payment_btn.clicked"))
         
-        back_btn = QPushButton("뒤로")
-        back_btn.setStyleSheet("""
+        call_btn = QPushButton("관리자 호출")
+        call_btn.setStyleSheet("""
             QPushButton {
-                font-size: 20px;
+                font-size: 50px;
                 padding: 15px;
-                background-color: #9E9E9E;
+                background-color: #E6DABD;
                 color: white;
                 border: none;
-                border-radius: 5px;
+                border-radius: 30px;
+            }
+            QPushButton:hover {
+                background-color: #E55A0F;
             }
         """)
-        back_btn.clicked.connect(lambda: self.switch_callback('home'))
+        call_btn.clicked.connect(lambda: self.switch_callback('home'))
+        #call_btn.clicked.connect(lambda a : print("back_btn.clicked"))
         
         nav_layout.addWidget(payment_btn)
-        nav_layout.addWidget(back_btn)
+        nav_layout.addWidget(call_btn)
         
         layout.addLayout(nav_layout)
         layout.addStretch()
@@ -82,3 +90,16 @@ class ProductScreen(QWidget):
     def add_product(self, product):
         self.selected_items.append(product)
         print(f"선택됨: {product['name']}")
+
+# 테스트 코드
+if __name__ == '__main__':
+    import sys
+    app = QApplication(sys.argv)
+    
+    def dummy_callback():
+        print("Callback called")
+    
+    window = ProductScreen(dummy_callback)
+    window.show()
+    
+    sys.exit(app.exec())
