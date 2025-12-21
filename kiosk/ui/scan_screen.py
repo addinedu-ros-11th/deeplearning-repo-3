@@ -1,4 +1,5 @@
-from PyQt6.QtWidgets import (QApplication, QWidget, QVBoxLayout, QPushButton, QLabel)
+from PyQt6.QtWidgets import (QApplication, QWidget, QVBoxLayout, QHBoxLayout, QPushButton, QLabel)
+from PyQt6.QtCore import Qt
 
 class ProductScreen(QWidget):
     def __init__(self, switch_callback):
@@ -9,44 +10,49 @@ class ProductScreen(QWidget):
 
     def init_ui(self):
         layout = QVBoxLayout()
+
+        layout.setContentsMargins(0, 0, 0, 0)
+        layout.setSpacing(0)
         
-        title = QLabel("상품 선택")
-        title.setStyleSheet("font-size: 36px; font-weight: bold;")
+        status_bar = QLabel("스캔")
+        status_bar.setStyleSheet("""
+            background-color: rgba(255, 109, 31, 0.7);
+            color: #222222;
+            font-size: 80pt;
+            font-weight: bold;
+            padding: 20px;
+        """)
+        status_bar.setAlignment(Qt.AlignmentFlag.AlignCenter)
+        status_bar.setFixedHeight(150)
+        layout.addWidget(status_bar)
         
-        # 상품 버튼들
-        products = [
-            {"name": "커피", "price": 3000},
-            {"name": "음료", "price": 2500},
-            {"name": "스낵", "price": 4000}
-        ]
-        
-        for product in products:
-            btn = QPushButton(f"{product['name']} - {product['price']:,}원")
-            btn.setStyleSheet("""
-                QPushButton {
-                    font-size: 24px;
-                    padding: 30px;
-                    background-color: #2196F3;
-                    color: white;
-                    border: none;
-                    border-radius: 10px;
-                }
-                QPushButton:hover {
-                    background-color: #0b7dda;
-                }
-            """)
-            btn.clicked.connect(
-                lambda checked, p=product: self.add_product(p)
-            )
-            layout.addWidget(btn)
+        # opencv hear
+
+        # rectangle hear
         
         layout.addSpacing(30)
         
-        # 네비게이션 버튼
-        nav_layout = QVBoxLayout()
+        button_layout = QHBoxLayout()
+        button_layout.setSpacing(30)
         
-        payment_btn = QPushButton("결제하기")
-        payment_btn.setStyleSheet("""
+        call_btn = QPushButton("뒤로")
+        call_btn.setStyleSheet("""
+            QPushButton {
+                font-size: 50px;
+                padding: 15px;
+                background-color: #E6DABD;
+                color: white;
+                border: none;
+                border-radius: 30px;
+            }
+            QPushButton:hover {
+                background-color: rgba(230, 218, 189, 0.5);
+            }
+        """)
+        call_btn.clicked.connect(lambda: self.switch_callback('home'))
+        
+        pay_btn = QPushButton("결제")
+        pay_btn.setStyleSheet("""
             QPushButton {
                 font-size: 70px;
                 padding: 15px;
@@ -59,30 +65,12 @@ class ProductScreen(QWidget):
                 background-color: #E55A0F;
             }
         """)
-        #payment_btn.clicked.connect(lambda: self.switch_callback('check'))
-        payment_btn.clicked.connect(lambda a : print("payment_btn.clicked"))
+        pay_btn.clicked.connect(lambda: self.switch_callback('check'))
+
+        button_layout.addWidget(call_btn)
+        button_layout.addWidget(pay_btn)
         
-        call_btn = QPushButton("관리자 호출")
-        call_btn.setStyleSheet("""
-            QPushButton {
-                font-size: 50px;
-                padding: 15px;
-                background-color: #E6DABD;
-                color: white;
-                border: none;
-                border-radius: 30px;
-            }
-            QPushButton:hover {
-                background-color: #E55A0F;
-            }
-        """)
-        call_btn.clicked.connect(lambda: self.switch_callback('home'))
-        #call_btn.clicked.connect(lambda a : print("back_btn.clicked"))
-        
-        nav_layout.addWidget(payment_btn)
-        nav_layout.addWidget(call_btn)
-        
-        layout.addLayout(nav_layout)
+        layout.addLayout(button_layout)
         layout.addStretch()
         
         self.setLayout(layout)
