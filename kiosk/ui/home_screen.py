@@ -14,7 +14,7 @@ class HomeScreen(QWidget):
         image = QLabel()
 
         layout.addSpacing(100)
-        pixmap = QPixmap('./data/logo.png')
+        pixmap = QPixmap('../data/logo.png')
         image.setPixmap(pixmap)
         image.setScaledContents(True)
         image.setFixedSize(850, 850)
