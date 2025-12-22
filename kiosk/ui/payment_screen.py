@@ -21,12 +21,11 @@ class PaymentScreen(QWidget):
         layout.setSpacing(0)
         
         # status bar 영역
-        status_bar = QLabel("스캔")
+        status_bar = QLabel("결제")
         status_bar.setStyleSheet("""
             background-color: rgba(255, 109, 31, 0.7);
             color: #222222;
             font-size: 80pt;
-            font-weight: bold;
             padding: 20px;
         """)
         status_bar.setAlignment(Qt.AlignmentFlag.AlignCenter)
