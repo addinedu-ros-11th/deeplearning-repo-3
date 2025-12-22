@@ -11,7 +11,20 @@ class PaymentScreen(QWidget):
     def init_ui(self):
         layout = QVBoxLayout()
 
-        image = QLabel()
+        layout.setContentsMargins(0, 0, 0, 0)
+        layout.setSpacing(0)
+        
+        status_bar = QLabel("스캔")
+        status_bar.setStyleSheet("""
+            background-color: rgba(255, 109, 31, 0.7);
+            color: #222222;
+            font-size: 80pt;
+            font-weight: bold;
+            padding: 20px;
+        """)
+        status_bar.setAlignment(Qt.AlignmentFlag.AlignCenter)
+        status_bar.setFixedHeight(150)
+        layout.addWidget(status_bar)
 
         layout.addSpacing(400)
         title = QLabel("카드를 태그해 주세요!")
@@ -19,7 +32,8 @@ class PaymentScreen(QWidget):
         title.setAlignment(Qt.AlignmentFlag.AlignCenter)
         layout.addWidget(title, alignment=Qt.AlignmentFlag.AlignCenter)
 
-        pixmap = QPixmap('../data/payment.png')
+        image = QLabel()
+        pixmap = QPixmap('./data/payment.png')
         scaled_pixmap = pixmap.scaled(600, 600, Qt.AspectRatioMode.KeepAspectRatio, Qt.TransformationMode.SmoothTransformation)
         image.setPixmap(scaled_pixmap)
         image.setAlignment(Qt.AlignmentFlag.AlignCenter)

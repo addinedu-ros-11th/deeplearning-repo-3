@@ -1,4 +1,4 @@
-from PyQt6.QtWidgets import (QWidget, QVBoxLayout, QPushButton, QLabel)
+from PyQt6.QtWidgets import (QApplication, QWidget, QVBoxLayout, QPushButton, QLabel)
 from PyQt6.QtGui import QPixmap
 from PyQt6.QtCore import Qt
 
@@ -14,7 +14,7 @@ class HomeScreen(QWidget):
         image = QLabel()
 
         layout.addSpacing(100)
-        pixmap = QPixmap('../data/logo.png')
+        pixmap = QPixmap('./data/logo.png')
         image.setPixmap(pixmap)
         image.setScaledContents(True)
         image.setFixedSize(850, 850)
@@ -34,7 +34,7 @@ class HomeScreen(QWidget):
                 background-color: #E55A0F;
             }
         """)
-        start_btn.clicked.connect(lambda: self.switch_callback('product'))
+        start_btn.clicked.connect(lambda: self.switch_callback('scan'))
         
         layout.addStretch()
         layout.addSpacing(40)
@@ -43,3 +43,15 @@ class HomeScreen(QWidget):
         
         self.setLayout(layout)
 
+# 테스트 코드
+if __name__ == '__main__':
+    import sys
+    app = QApplication(sys.argv)
+    
+    def dummy_callback():
+        print("Callback called")
+    
+    window = HomeScreen(dummy_callback)
+    window.show()
+    
+    sys.exit(app.exec())
