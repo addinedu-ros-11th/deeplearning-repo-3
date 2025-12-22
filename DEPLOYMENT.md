@@ -25,22 +25,22 @@ export PROJECT_ID="<PROJECT_ID>"
 export REGION="asia-northeast3"
 export ZONE="asia-northeast3-a"
 
-export REPO="smart-cafe-repo"
+export REPO="bake_sight-repo"
 
 # 네트워크
-export VPC="smart-cafe-vpc"
-export SUBNET="smart-cafe-subnet"
+export VPC="bake_sight-vpc"
+export SUBNET="bake_sight-subnet"
 export SUBNET_RANGE="10.10.0.0/24"
 
 # 서비스/VM
-export CENTRAL_SERVICE="smart-cafe-central"
+export CENTRAL_SERVICE="bake_sight-central"
 export CENTRAL_NET_TAG="central-run"     # Cloud Run 네트워크 태그 (방화벽에 사용)
-export AI_VM="smart-cafe-ai-01"
+export AI_VM="bake_sight-ai-01"
 export AI_PORT="9000"
 
 # Cloud SQL
-export SQL_INSTANCE="smart-cafe-mysql"
-export DB_NAME="smart_cafe_demo"
+export SQL_INSTANCE="bake_sight-mysql"
+export DB_NAME="bake_sight_demo"
 export DB_USER="demo"
 export DB_PASS="<PASSWORD>"
 export INSTANCE_CONNECTION_NAME="${PROJECT_ID}:${REGION}:${SQL_INSTANCE}"
@@ -113,11 +113,11 @@ AI VM에서 GCS 다운로드(모델/임베딩)를 할 계획이면 VM 서비스 
 
 ## 8) Secret Manager
 ```bash
-echo -n "<CENTRAL_ADMIN_KEY>" | gcloud secrets create SMART_CAFE_ADMIN_KEY --data-file=-
-echo -n "<AI_ADMIN_KEY>"      | gcloud secrets create SMART_CAFE_AI_ADMIN_KEY --data-file=-
+echo -n "<CENTRAL_ADMIN_KEY>" | gcloud secrets create BAKE_SIGHT_ADMIN_KEY --data-file=-
+echo -n "<AI_ADMIN_KEY>"      | gcloud secrets create BAKE_SIGHT_AI_ADMIN_KEY --data-file=-
 
 DATABASE_URL="mysql+pymysql://${DB_USER}:${DB_PASS}@/${DB_NAME}?unix_socket=/cloudsql/${INSTANCE_CONNECTION_NAME}&charset=utf8mb4"
-echo -n "${DATABASE_URL}"     | gcloud secrets create SMART_CAFE_DATABASE_URL --data-file=-
+echo -n "${DATABASE_URL}"     | gcloud secrets create BAKE_SIGHT_DATABASE_URL --data-file=-
 ```
 
 ---
@@ -175,7 +175,7 @@ sudo systemctl status ai-inference
 AI_INTERNAL_IP="$(gcloud compute instances describe "${AI_VM}" --zone "${ZONE}" --format='value(networkInterfaces[0].networkIP)')"
 echo "AI_INTERNAL_IP=${AI_INTERNAL_IP}"
 
-echo -n "http://${AI_INTERNAL_IP}:${AI_PORT}" | gcloud secrets create SMART_CAFE_AI_BASE_URL --data-file=-
+echo -n "http://${AI_INTERNAL_IP}:${AI_PORT}" | gcloud secrets create BAKE_SIGHT_AI_BASE_URL --data-file=-
 ```
 
 ---
@@ -190,7 +190,7 @@ gcloud builds submit --tag "${IMAGE}"
 
 ### 10.2 배포(Direct VPC egress + Cloud SQL + Secrets)
 ```bash
-gcloud run deploy "${CENTRAL_SERVICE}"   --image "${IMAGE}"   --region "${REGION}"   --service-account "${CENTRAL_SA}"   --network "${VPC}"   --subnet "${SUBNET}"   --network-tags "${CENTRAL_NET_TAG}"   --vpc-egress "private-ranges-only"   --add-cloudsql-instances "${INSTANCE_CONNECTION_NAME}"   --update-secrets     "ADMIN_KEY=SMART_CAFE_ADMIN_KEY:latest,DATABASE_URL=SMART_CAFE_DATABASE_URL:latest,AI_ADMIN_KEY=SMART_CAFE_AI_ADMIN_KEY:latest,AI_BASE_URL=SMART_CAFE_AI_BASE_URL:latest"   --update-env-vars "CREATE_TABLES=1"   --allow-unauthenticated
+gcloud run deploy "${CENTRAL_SERVICE}"   --image "${IMAGE}"   --region "${REGION}"   --service-account "${CENTRAL_SA}"   --network "${VPC}"   --subnet "${SUBNET}"   --network-tags "${CENTRAL_NET_TAG}"   --vpc-egress "private-ranges-only"   --add-cloudsql-instances "${INSTANCE_CONNECTION_NAME}"   --update-secrets     "ADMIN_KEY=BAKE_SIGHT_ADMIN_KEY:latest,DATABASE_URL=BAKE_SIGHT_DATABASE_URL:latest,AI_ADMIN_KEY=BAKE_SIGHT_AI_ADMIN_KEY:latest,AI_BASE_URL=BAKE_SIGHT_AI_BASE_URL:latest"   --update-env-vars "CREATE_TABLES=1"   --allow-unauthenticated
 ```
 
 테이블 생성 확인 후:
