@@ -86,7 +86,7 @@ class CheckScreen(QWidget):
                 background-color: rgba(230, 218, 189, 0.5);
             }
         """)
-        call_btn.clicked.connect(lambda: self.switch_callback('product'))
+        call_btn.clicked.connect(lambda: self.switch_callback('scan'))
         
         pay_btn = QPushButton("결제")
         pay_btn.setStyleSheet("""
