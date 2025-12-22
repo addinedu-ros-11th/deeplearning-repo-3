@@ -1,0 +1,193 @@
+Enum device_type { CHECKOUT CCTV }
+Enum device_status { ACTIVE INACTIVE }
+
+Enum tray_session_status { ACTIVE PAID CANCELLED TIMEOUT }
+Enum decision_state { AUTO REVIEW UNKNOWN }
+
+Enum review_status { OPEN RESOLVED }
+
+Enum order_status { PAID FAILED }
+
+Enum prototype_set_status { ACTIVE INACTIVE }
+
+Enum cctv_event_type { VANDALISM VIOLENCE FALL WHEELCHAIR }
+Enum cctv_event_status { OPEN CONFIRMED DISMISSED }
+
+// ======================
+// Master
+// ======================
+Table store {
+  store_id int [pk, increment]
+  store_code varchar(32) [not null, unique] // STORE-01
+  name varchar(64) [not null]
+  created_at datetime [not null]
+}
+
+Table device {
+  device_id int [pk, increment]
+  store_id int [not null, ref: > store.store_id]
+  device_code varchar(32) [not null] // POS-01, CCTV-01 (unique within store)
+  device_type device_type [not null]
+  status device_status [not null]
+  stream_uri varchar(512) // CCTV only (optional)
+  config_json json // ROI points, trigger thresholds, etc.
+  created_at datetime [not null]
+
+  indexes {
+    (store_id, device_code) [unique]
+    (store_id, device_type)
+  }
+}
+
+Table menu_item {
+  item_id int [pk, increment]
+  name varchar(128) [not null]
+  category varchar(64)
+  price_won int [not null]
+  weight_grams int
+  active boolean [not null]
+  created_at datetime [not null]
+
+  indexes {
+    (active, category)
+  }
+}
+
+Table prototype_set {
+  prototype_set_id int [pk, increment]
+  status prototype_set_status [not null] // ACTIVE/INACTIVE
+  notes varchar(256)
+  created_at datetime [not null]
+}
+
+Table menu_item_prototype {
+  prototype_id int [pk, increment]
+  item_id int [not null, ref: > menu_item.item_id]
+  prototype_set_id int [not null, ref: > prototype_set.prototype_set_id]
+  image_gcs_uri varchar(512) [not null]
+  embedding_gcs_uri varchar(512) [not null]
+  is_active boolean [not null]
+  created_at datetime [not null]
+
+  indexes {
+    (item_id, is_active)
+    (prototype_set_id)
+  }
+}
+
+// ======================
+// Tray / Checkout
+// ======================
+Table tray_session {
+  session_id bigint [pk, increment]
+  session_uuid char(36) [not null, unique]
+  store_id int [not null, ref: > store.store_id]
+  checkout_device_id int [not null, ref: > device.device_id] // device_type=CHECKOUT
+  status tray_session_status [not null]
+  attempt_limit int [not null] // 3
+  started_at datetime [not null]
+  ended_at datetime
+  end_reason varchar(64)
+  created_at datetime [not null]
+
+  indexes {
+    (checkout_device_id, started_at)
+    (store_id, status, started_at)
+  }
+}
+
+Table recognition_run {
+  run_id bigint [pk, increment]
+  session_id bigint [not null, ref: > tray_session.session_id]
+  attempt_no int [not null] // 1..3
+  overlap_score decimal(8,6)
+  decision decision_state [not null]
+  result_json json [not null] // instances + topk + distance/margin + qty + mask meta
+  created_at datetime [not null]
+
+  indexes {
+    (session_id, attempt_no) [unique]
+    (session_id, created_at)
+  }
+}
+
+Table review {
+  review_id bigint [pk, increment]
+  session_id bigint [not null, ref: > tray_session.session_id]
+  run_id bigint [ref: > recognition_run.run_id] // optional link to the run that triggered review
+  status review_status [not null]
+  reason varchar(64) // REVIEW/UNKNOWN/OVERLAP etc.
+  top_k_json json // optional: store condensed top-k for admin UI
+  confirmed_items_json json // set when RESOLVED
+  created_at datetime [not null]
+  resolved_at datetime
+  resolved_by varchar(64)
+
+  indexes {
+    (status, created_at)
+    (session_id)
+  }
+  // Note: "only one OPEN per session" enforced in application logic.
+}
+
+Table order_hdr {
+  order_id bigint [pk, increment]
+  store_id int [not null, ref: > store.store_id]
+  session_id bigint [not null, ref: > tray_session.session_id]
+  total_amount_won int [not null]
+  status order_status [not null]
+  created_at datetime [not null]
+
+  indexes {
+    (store_id, created_at)
+    (session_id) [unique]
+  }
+}
+
+Table order_line {
+  order_line_id bigint [pk, increment]
+  order_id bigint [not null, ref: > order_hdr.order_id]
+  item_id int [not null, ref: > menu_item.item_id]
+  qty int [not null]
+  unit_price_won int [not null]
+  line_amount_won int [not null]
+
+  indexes {
+    (order_id)
+    (item_id)
+  }
+}
+
+// ======================
+// CCTV
+// ======================
+Table cctv_event {
+  event_id bigint [pk, increment]
+  store_id int [not null, ref: > store.store_id]
+  cctv_device_id int [not null, ref: > device.device_id] // device_type=CCTV
+  event_type cctv_event_type [not null]
+  confidence decimal(8,6) [not null]
+  status cctv_event_status [not null]
+  started_at datetime [not null]
+  ended_at datetime [not null]
+  meta_json json // snapshot uris, bbox summary, etc.
+  created_at datetime [not null]
+
+  indexes {
+    (cctv_device_id, started_at)
+    (event_type, status)
+  }
+}
+
+Table cctv_event_clip {
+  clip_id bigint [pk, increment]
+  event_id bigint [not null, ref: > cctv_event.event_id]
+  clip_gcs_uri varchar(512) [not null]
+  clip_start_at datetime [not null] // started_at - 3s
+  clip_end_at datetime [not null]   // ended_at + 5s
+  created_at datetime [not null]
+
+  indexes {
+    (event_id)
+  }
+}
