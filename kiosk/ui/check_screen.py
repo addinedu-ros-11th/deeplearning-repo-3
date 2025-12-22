@@ -13,6 +13,7 @@ class CheckScreen(QWidget):
         layout.setContentsMargins(0, 0, 0, 0)
         layout.setSpacing(0)
         
+        # status bar 영역
         status_bar = QLabel("주문 내역 확인")
         status_bar.setStyleSheet("""
             background-color: rgba(255, 109, 31, 0.7);
@@ -36,6 +37,7 @@ class CheckScreen(QWidget):
         """)
         container.setAttribute(Qt.WidgetAttribute.WA_StyledBackground, True)
 
+        # 스크롤 영역
         container_layout = QVBoxLayout(container)
         container_layout.setContentsMargins(0, 0, 0, 0)
         container_layout.setSpacing(0)
@@ -78,6 +80,7 @@ class CheckScreen(QWidget):
         self.scroll_layout.setSpacing(7)
         self.scroll_layout.setAlignment(Qt.AlignmentFlag.AlignHCenter)
         
+        # 임시 아이템 리스트
         for i in range(10):
             item = QLabel(f"아이템 {i+1}")
             item.setFixedSize(955, 170)
@@ -97,6 +100,7 @@ class CheckScreen(QWidget):
         layout.addWidget(container, alignment=Qt.AlignmentFlag.AlignCenter)
         layout.addSpacing(40)
 
+        # 버튼 영역
         button_layout = QHBoxLayout()
         button_layout.setSpacing(100)
         button_layout.setContentsMargins(20, 0, 20, 20)

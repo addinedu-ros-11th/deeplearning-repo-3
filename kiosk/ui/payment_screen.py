@@ -19,6 +19,7 @@ class PaymentScreen(QWidget):
         layout.setContentsMargins(0, 0, 0, 0)
         layout.setSpacing(0)
         
+        # status bar 영역
         status_bar = QLabel("스캔")
         status_bar.setStyleSheet("""
             background-color: rgba(255, 109, 31, 0.7);
@@ -31,12 +32,14 @@ class PaymentScreen(QWidget):
         status_bar.setFixedHeight(150)
         layout.addWidget(status_bar)
 
+        # 글 영역
         layout.addSpacing(400)
         title = QLabel("카드를 태그해 주세요!")
         title.setStyleSheet("font-size: 48px; font-weight: bold;")
         title.setAlignment(Qt.AlignmentFlag.AlignCenter)
         layout.addWidget(title, alignment=Qt.AlignmentFlag.AlignCenter)
 
+        # 이미지 영역
         image = QLabel()
         pixmap = QPixmap('./data/payment.png')
         scaled_pixmap = pixmap.scaled(600, 600, Qt.AspectRatioMode.KeepAspectRatio, Qt.TransformationMode.SmoothTransformation)
