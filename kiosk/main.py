@@ -1,5 +1,4 @@
-from PyQt6.QtWidgets import (QApplication, QMainWindow, QStackedWidget, 
-                             QWidget, QVBoxLayout, QPushButton, QLabel)
+from PyQt6.QtWidgets import (QApplication, QMainWindow, QStackedWidget)
 
 
 from ui.home_screen import HomeScreen
