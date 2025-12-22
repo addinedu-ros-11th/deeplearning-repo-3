@@ -1,6 +1,7 @@
 from PyQt6.QtWidgets import (QApplication, QWidget, QVBoxLayout, QLabel)
 from PyQt6.QtGui import QPixmap
-from PyQt6.QtCore import Qt, QTimer
+from PyQt6.QtCore import Qt, QTimer, QPropertyAnimation, QEasingCurve, QAbstractAnimation
+from PyQt6.QtWidgets import QGraphicsOpacityEffect
 from popup.payment_popup import PaymentTimeoutPopup, PaymentCompletePopup
 from time import time
 
@@ -40,16 +41,42 @@ class PaymentScreen(QWidget):
         layout.addWidget(title, alignment=Qt.AlignmentFlag.AlignCenter)
 
         # 이미지 영역
-        image = QLabel()
+        self.image = QLabel()
         pixmap = QPixmap('./data/payment.png')
         scaled_pixmap = pixmap.scaled(600, 600, Qt.AspectRatioMode.KeepAspectRatio, Qt.TransformationMode.SmoothTransformation)
-        image.setPixmap(scaled_pixmap)
-        image.setAlignment(Qt.AlignmentFlag.AlignCenter)
-        layout.addWidget(image, alignment=Qt.AlignmentFlag.AlignCenter)
+        self.image.setPixmap(scaled_pixmap)
+        self.image.setAlignment(Qt.AlignmentFlag.AlignCenter)
+        layout.addWidget(self.image, alignment=Qt.AlignmentFlag.AlignCenter)
+        
+        self.setup_blink_animation()
 
         layout.addStretch()
 
         self.setLayout(layout)
+
+    def setup_blink_animation(self):
+        """이미지 깜빡임 애니메이션"""
+        effect = QGraphicsOpacityEffect(self.image)
+        self.image.setGraphicsEffect(effect)
+
+        self.blink_anim = QPropertyAnimation(effect, b"opacity")
+        self.blink_anim.setDuration(1500)
+        self.blink_anim.setStartValue(1.0)
+        self.blink_anim.setEndValue(0.3)
+        self.blink_anim.setEasingCurve(QEasingCurve.Type.InOutQuad)
+        self.blink_anim.finished.connect(self.toggle_blink_direction)
+
+        self.blink_anim.start()
+
+    def toggle_blink_direction(self):
+        """깜빡임 무한 반복을 위한 토글"""
+        if self.blink_anim.direction() == QAbstractAnimation.Direction.Forward:
+            self.blink_anim.setDirection(QAbstractAnimation.Direction.Backward)
+        else:
+            self.blink_anim.setDirection(QAbstractAnimation.Direction.Forward)
+
+        self.blink_anim.start()
+
     
     def showEvent(self, event):
         """화면이 표시될 때 timer 관련 변수 초기화"""
