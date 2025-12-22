@@ -3,7 +3,7 @@ from PyQt6.QtWidgets import (QApplication, QMainWindow, QStackedWidget,
 
 
 from ui.home_screen import HomeScreen
-from ui.scan_screen import ProductScreen
+from ui.scan_screen import ScanScreen
 from ui.payment_screen import PaymentScreen
 from ui.check_screen import CheckScreen
 
@@ -20,13 +20,13 @@ class KioskApp(QMainWindow):
         
         # 각 화면 생성
         self.home_screen = HomeScreen(self.switch_screen)
-        self.product_screen = ProductScreen(self.switch_screen)
+        self.scan_screen = ScanScreen(self.switch_screen)
         self.check_screen = CheckScreen(self.switch_screen)
         self.payment_screen = PaymentScreen(self.switch_screen)
         
         # 스택에 추가
         self.stacked.addWidget(self.home_screen)      # index 0
-        self.stacked.addWidget(self.product_screen)   # index 1
+        self.stacked.addWidget(self.scan_screen)   # index 1
         self.stacked.addWidget(self.check_screen)   # index 2
         self.stacked.addWidget(self.payment_screen)   # index 3
         
@@ -39,7 +39,7 @@ class KioskApp(QMainWindow):
         """상태에 따라 화면 전환"""
         screens = {
             'home': 0,
-            'product': 1,
+            'scan': 1,
             'check': 2,
             'payment': 3
         }
