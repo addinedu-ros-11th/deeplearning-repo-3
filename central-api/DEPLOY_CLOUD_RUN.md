@@ -28,14 +28,14 @@ gcloud services enable run.googleapis.com cloudbuild.googleapis.com artifactregi
 gcloud artifacts repositories create <REPO_NAME> \
   --repository-format=docker \
   --location <REGION> \
-  --description "Smart Cafe Demo images"
+  --description "Bake Sight Demo images"
 ```
 
 ---
 
 ## 2) Cloud SQL(MySQL) 설정(요약)
 1) Cloud SQL for MySQL 인스턴스 생성
-2) DB 생성(예: `smart_cafe_demo`)
+2) DB 생성(예: `bake_sight_demo`)
 3) DB 유저/비밀번호 생성
 
 ---
@@ -46,13 +46,13 @@ Cloud Run이 **Cloud SQL**과 **Secret Manager**에 접근할 수 있어야 하�
 
 ### 3.1 서비스 계정 생성(1회)
 ```bash
-gcloud iam service-accounts create smart-cafe-run \
-  --display-name "Smart Cafe Cloud Run"
+gcloud iam service-accounts create bake-sight-run \
+  --display-name "Bake Sight Cloud Run"
 ```
 
 서비스 계정 이메일(자동 생성)을 아래처럼 사용합니다:
 ```bash
-SA_EMAIL="smart-cafe-run@<PROJECT_ID>.iam.gserviceaccount.com"
+SA_EMAIL="bake-sight-run@<PROJECT_ID>.iam.gserviceaccount.com"
 ```
 
 ### 3.2 Cloud SQL Client 권한 부여(프로젝트 단위)
@@ -65,11 +65,11 @@ gcloud projects add-iam-policy-binding <PROJECT_ID> \
 ### 3.3 Secret Manager 접근 권한 부여(Secret 단위 권장)
 Secret 자체는 아래 4)에서 생성합니다. 생성 후 다음을 실행하세요:
 ```bash
-gcloud secrets add-iam-policy-binding SMART_CAFE_ADMIN_KEY \
+gcloud secrets add-iam-policy-binding BAKE_SIGHT_ADMIN_KEY \
   --member="serviceAccount:${SA_EMAIL}" \
   --role="roles/secretmanager.secretAccessor"
 
-gcloud secrets add-iam-policy-binding SMART_CAFE_DATABASE_URL \
+gcloud secrets add-iam-policy-binding BAKE_SIGHT_DATABASE_URL \
   --member="serviceAccount:${SA_EMAIL}" \
   --role="roles/secretmanager.secretAccessor"
 ```
@@ -80,12 +80,12 @@ gcloud secrets add-iam-policy-binding SMART_CAFE_DATABASE_URL \
 
 ### 4.1 Admin Key 저장(최초 1회)
 ```bash
-echo -n "<ADMIN_KEY_VALUE>" | gcloud secrets create SMART_CAFE_ADMIN_KEY --data-file=-
+echo -n "<ADMIN_KEY_VALUE>" | gcloud secrets create BAKE_SIGHT_ADMIN_KEY --data-file=-
 ```
 
 이미 secret이 존재하면 “버전 추가”로 갱신합니다:
 ```bash
-echo -n "<ADMIN_KEY_VALUE>" | gcloud secrets versions add SMART_CAFE_ADMIN_KEY --data-file=-
+echo -n "<ADMIN_KEY_VALUE>" | gcloud secrets versions add BAKE_SIGHT_ADMIN_KEY --data-file=-
 ```
 
 ### 4.2 DATABASE_URL 저장(최초 1회)
@@ -97,13 +97,13 @@ mysql+pymysql://DBUSER:DBPASS@/DBNAME?unix_socket=/cloudsql/PROJECT:REGION:INSTA
 생성:
 ```bash
 echo -n "mysql+pymysql://DBUSER:DBPASS@/DBNAME?unix_socket=/cloudsql/PROJECT:REGION:INSTANCE&charset=utf8mb4" \
- | gcloud secrets create SMART_CAFE_DATABASE_URL --data-file=-
+ | gcloud secrets create BAKE_SIGHT_DATABASE_URL --data-file=-
 ```
 
 이미 secret이 존재하면 버전 추가:
 ```bash
 echo -n "mysql+pymysql://DBUSER:DBPASS@/DBNAME?unix_socket=/cloudsql/PROJECT:REGION:INSTANCE&charset=utf8mb4" \
- | gcloud secrets versions add SMART_CAFE_DATABASE_URL --data-file=-
+ | gcloud secrets versions add BAKE_SIGHT_DATABASE_URL --data-file=-
 ```
 
 ---
@@ -113,7 +113,7 @@ echo -n "mysql+pymysql://DBUSER:DBPASS@/DBNAME?unix_socket=/cloudsql/PROJECT:REG
 ### 5.1 Cloud Build로 빌드/푸시(가장 단순)
 ```bash
 gcloud builds submit \
-  --tag <REGION>-docker.pkg.dev/<PROJECT_ID>/<REPO_NAME>/smart-cafe-api:latest
+  --tag <REGION>-docker.pkg.dev/<PROJECT_ID>/<REPO_NAME>/bake-sight-api:latest
 ```
 
 ---
@@ -122,21 +122,21 @@ gcloud builds submit \
 
 ### 6.1 Cloud Run 배포 + Cloud SQL 연결 + Secret 주입
 ```bash
-SA_EMAIL="smart-cafe-run@<PROJECT_ID>.iam.gserviceaccount.com"
+SA_EMAIL="bake-sight-run@<PROJECT_ID>.iam.gserviceaccount.com"
 
-gcloud run deploy smart-cafe-api \
-  --image <REGION>-docker.pkg.dev/<PROJECT_ID>/<REPO_NAME>/smart-cafe-api:latest \
+gcloud run deploy bake-sight-api \
+  --image <REGION>-docker.pkg.dev/<PROJECT_ID>/<REPO_NAME>/bake-sight-api:latest \
   --region <REGION> \
   --service-account "${SA_EMAIL}" \
   --add-cloudsql-instances <PROJECT:REGION:INSTANCE> \
-  --update-secrets ADMIN_KEY=SMART_CAFE_ADMIN_KEY:latest,DATABASE_URL=SMART_CAFE_DATABASE_URL:latest \
+  --update-secrets ADMIN_KEY=BAKE_SIGHT_ADMIN_KEY:latest,DATABASE_URL=BAKE_SIGHT_DATABASE_URL:latest \
   --update-env-vars CREATE_TABLES=1,DB_POOL_SIZE=5,DB_MAX_OVERFLOW=2,DB_POOL_RECYCLE=1800 \
   --allow-unauthenticated
 ```
 
 ### 6.2 테이블 생성 후 CREATE_TABLES 끄기
 ```bash
-gcloud run services update smart-cafe-api \
+gcloud run services update bake-sight-api \
   --region <REGION> \
   --update-env-vars CREATE_TABLES=0
 ```
@@ -147,7 +147,7 @@ gcloud run services update smart-cafe-api \
 
 ### 7.1 서비스 URL 확인
 ```bash
-gcloud run services describe smart-cafe-api --region <REGION> --format='value(status.url)'
+gcloud run services describe bake-sight-api --region <REGION> --format='value(status.url)'
 ```
 
 ### 7.2 /docs 접속
