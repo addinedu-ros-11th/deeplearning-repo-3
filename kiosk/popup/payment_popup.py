@@ -56,7 +56,7 @@ class BasePopup(QDialog):
                     background-color: {color};
                     color: #FAF3E1;
                     border: none;
-                    border-radius: 10px;
+                    border-radius: 30px;
                 }}
                 QPushButton:hover {{
                     background-color: #E55A0F;
@@ -70,7 +70,7 @@ class BasePopup(QDialog):
                     background-color: {color};
                     color: #222222;
                     border: none;
-                    border-radius: 10px;
+                    border-radius: 30px;
                 }}
                 QPushButton:hover {{
                     background-color: rgba(230, 218, 189, 0.7);
@@ -102,6 +102,7 @@ class PaymentTimeoutPopup(BasePopup):
         home_btn = self.create_button("처음으로", "#E6DABD", is_primary=False)
         home_btn.clicked.connect(lambda: self.done_with_result('home'))
         button_layout.addWidget(home_btn)
+        button_layout.setSpacing(50)
         
         # '재시도' 버튼
         retry_btn = self.create_button("재시도", "#FF6D1F", is_primary=True)
