@@ -1,5 +1,4 @@
 from PyQt6.QtWidgets import (QApplication, QWidget, QVBoxLayout, QHBoxLayout, QPushButton, QLabel, QScrollArea)
-from PyQt6.QtGui import QPixmap
 from PyQt6.QtCore import Qt
 
 class CheckScreen(QWidget):
@@ -7,10 +6,8 @@ class CheckScreen(QWidget):
         super().__init__()
         self.switch_callback = switch_callback
         self.init_ui()
-        print("CheckScreen initialized")
     
     def init_ui(self):
-        print("[DEBUG] CheckScreen")
         layout = QVBoxLayout()
 
         layout.setContentsMargins(0, 0, 0, 0)

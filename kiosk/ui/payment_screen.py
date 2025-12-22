@@ -1,4 +1,4 @@
-from PyQt6.QtWidgets import (QApplication, QWidget, QVBoxLayout, QPushButton, QLabel)
+from PyQt6.QtWidgets import (QApplication, QWidget, QVBoxLayout, QLabel)
 from PyQt6.QtGui import QPixmap
 from PyQt6.QtCore import Qt, QTimer
 from popup.payment_popup import PaymentTimeoutPopup, PaymentCompletePopup
@@ -54,20 +54,15 @@ class PaymentScreen(QWidget):
         if not self.timer_started:
             self.timer_started = True
             self.start_timeout_timer()
-            
-            # 테스트용
-            #self.on_payment_success()
-    
+
     def start_timeout_timer(self):
         """5초 후 타임아웃 체크"""
-        print("타이머 시작!")
         self.timeout_timer = QTimer()
         self.timeout_timer.timeout.connect(self.check_payment_status)
-        self.timeout_timer.start(5000)  # 5초
+        self.timeout_timer.start(5000)
     
     def check_payment_status(self):
         """결제 상태 확인"""
-        print("타임아웃 체크!")
         self.timeout_timer.stop()
         
         if not self.is_payed:
@@ -90,7 +85,6 @@ class PaymentScreen(QWidget):
     
     def on_payment_success(self):
         """RFID 결제 성공 시 호출할 메서드"""
-        print("결제 성공!")
         self.is_payed = True
         
         # 타이머가 있고 실행 중이면 중지
