@@ -4,8 +4,8 @@
 
 substitutions:
   _REGION: asia-northeast3
-  _REPO: REPLACE_ME
-  _IMAGE: bake-sight-api
+  _REPO: bake-sight-repo
+  _IMAGE: bake-sight-central
 
 steps:
   - name: gcr.io/cloud-builders/docker

@@ -1,0 +1,200 @@
+@import url('https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&family=Noto+Sans+KR:wght@300;400;500;600;700&display=swap');
+
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+@layer base {
+  :root {
+    --background: 0 0% 10%;
+    --foreground: 0 0% 96%;
+
+    --card: 0 0% 18%;
+    --card-foreground: 0 0% 96%;
+
+    --popover: 0 0% 18%;
+    --popover-foreground: 0 0% 96%;
+
+    --primary: 16 56% 56%;
+    --primary-foreground: 0 0% 100%;
+
+    --secondary: 20 41% 39%;
+    --secondary-foreground: 0 0% 96%;
+
+    --accent: 30 89% 67%;
+    --accent-foreground: 0 0% 10%;
+
+    --muted: 0 0% 25%;
+    --muted-foreground: 0 0% 74%;
+
+    --destructive: 0 72% 71%;
+    --destructive-foreground: 0 0% 100%;
+
+    --success: 120 50% 64%;
+    --success-foreground: 0 0% 10%;
+
+    --warning: 36 100% 65%;
+    --warning-foreground: 0 0% 10%;
+
+    --border: 0 0% 25%;
+    --input: 0 0% 25%;
+    --ring: 16 56% 56%;
+
+    --radius: 1rem;
+
+    --sidebar-background: 0 0% 12%;
+    --sidebar-foreground: 0 0% 96%;
+    --sidebar-primary: 16 56% 56%;
+    --sidebar-primary-foreground: 0 0% 100%;
+    --sidebar-accent: 0 0% 18%;
+    --sidebar-accent-foreground: 0 0% 96%;
+    --sidebar-border: 0 0% 20%;
+    --sidebar-ring: 16 56% 56%;
+
+    /* Custom tokens */
+    --kpi-revenue: 16 56% 56%;
+    --kpi-customers: 30 89% 67%;
+    --kpi-occupancy: 20 41% 39%;
+    --kpi-alerts: 0 72% 71%;
+
+    --table-occupied: 120 50% 64%;
+    --table-cleaning: 36 100% 65%;
+    --table-abnormal: 0 72% 71%;
+    --table-vacant: 0 0% 33%;
+
+    --chart-1: 16 56% 56%;
+    --chart-2: 30 89% 67%;
+    --chart-3: 20 41% 39%;
+    --chart-4: 25 70% 55%;
+    --chart-5: 35 80% 60%;
+    --chart-6: 15 45% 50%;
+  }
+
+  .dark {
+    --background: 0 0% 10%;
+    --foreground: 0 0% 96%;
+    --card: 0 0% 18%;
+    --card-foreground: 0 0% 96%;
+    --popover: 0 0% 18%;
+    --popover-foreground: 0 0% 96%;
+    --primary: 16 56% 56%;
+    --primary-foreground: 0 0% 100%;
+    --secondary: 20 41% 39%;
+    --secondary-foreground: 0 0% 96%;
+    --accent: 30 89% 67%;
+    --accent-foreground: 0 0% 10%;
+    --muted: 0 0% 25%;
+    --muted-foreground: 0 0% 74%;
+    --destructive: 0 72% 71%;
+    --destructive-foreground: 0 0% 100%;
+    --border: 0 0% 25%;
+    --input: 0 0% 25%;
+    --ring: 16 56% 56%;
+  }
+}
+
+@layer base {
+  * {
+    @apply border-border;
+  }
+
+  body {
+    @apply bg-background text-foreground font-sans antialiased;
+    font-family: 'Inter', 'Noto Sans KR', sans-serif;
+    -webkit-tap-highlight-color: transparent;
+  }
+}
+
+/* Safe area padding for mobile devices */
+.safe-area-top {
+  padding-top: env(safe-area-inset-top);
+}
+
+.safe-area-bottom {
+  padding-bottom: env(safe-area-inset-bottom);
+}
+
+/* Touch optimization */
+.touch-manipulation {
+  touch-action: manipulation;
+}
+
+@layer utilities {
+  .glass-card {
+    @apply bg-card/80 backdrop-blur-sm border border-border/50 shadow-xl;
+  }
+
+  .kpi-glow {
+    box-shadow: 0 0 30px -5px hsl(var(--primary) / 0.3);
+  }
+
+  .hover-lift {
+    @apply transition-all duration-300 ease-out;
+  }
+
+  .hover-lift:hover {
+    transform: translateY(-2px);
+    box-shadow: 0 8px 30px -5px hsl(var(--primary) / 0.25);
+  }
+
+  .animate-count-up {
+    animation: countUp 1s ease-out forwards;
+  }
+
+  .animate-fade-in-up {
+    animation: fadeInUp 0.5s ease-out forwards;
+  }
+
+  .animate-pulse-soft {
+    animation: pulseSoft 2s infinite;
+  }
+
+  .scrollbar-thin {
+    scrollbar-width: thin;
+    scrollbar-color: hsl(var(--muted)) transparent;
+  }
+
+  .scrollbar-thin::-webkit-scrollbar {
+    width: 6px;
+  }
+
+  .scrollbar-thin::-webkit-scrollbar-track {
+    background: transparent;
+  }
+
+  .scrollbar-thin::-webkit-scrollbar-thumb {
+    background-color: hsl(var(--muted));
+    border-radius: 3px;
+  }
+}
+
+@keyframes countUp {
+  from {
+    opacity: 0;
+    transform: translateY(10px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+@keyframes fadeInUp {
+  from {
+    opacity: 0;
+    transform: translateY(20px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+@keyframes pulseSoft {
+  0%, 100% {
+    opacity: 1;
+  }
+  50% {
+    opacity: 0.7;
+  }
+}

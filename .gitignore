@@ -2,6 +2,7 @@
 __pycache__/
 *.py[codz]
 *$py.class
+node_modules/
 
 # C extensions
 *.so
@@ -136,6 +137,7 @@ celerybeat.pid
 
 # Environments
 .env
+.env.cloudrun
 .envrc
 .venv
 env/

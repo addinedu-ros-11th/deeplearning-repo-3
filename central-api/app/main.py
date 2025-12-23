@@ -13,13 +13,21 @@ def create_app() -> FastAPI:
         redoc_url="/redoc",
     )
 
-    app.include_router(api_router, prefix="/api/v1")
+    @app.get("/")
+    def root():
+        return {
+            "service": "bake-sight-central",
+            "ok": True,
+            "docs": "/docs",
+            "api_base": "/api/v1",
+        }
 
-    @app.on_event("startup")
-    def on_startup():
-        # 데모 편의: 필요 시 테이블 자동 생성
-        if settings.CREATE_TABLES:
-            Base.metadata.create_all(bind=engine)
+    # ✅ 헬스체크: 로드밸런서/모니터링/팀 디버깅용
+    @app.get("/health")
+    def health():
+        return {"status": "healthy"}
+
+    app.include_router(api_router, prefix="/api/v1")
 
     return app
 
