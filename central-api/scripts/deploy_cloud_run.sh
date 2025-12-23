@@ -35,6 +35,7 @@ echo "[2/6] Deploy Cloud Run"
 gcloud run deploy "${SERVICE_NAME}" \
   --image "${IMAGE}" \
   --region "${REGION}" \
+  --platform gen2 \
   --service-account "${SERVICE_ACCOUNT_EMAIL}" \
   --network "${VPC}" \
   --subnet "${SUBNET}" \
