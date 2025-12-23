@@ -10,6 +10,9 @@ class CheckScreen(QWidget):
     def init_ui(self):
         layout = QVBoxLayout()
 
+        self.total_qty_value_contents = "100"
+        self.total_amount_value_contents = "10,000"
+
         layout.setContentsMargins(0, 0, 0, 0)
         layout.setSpacing(0)
         
@@ -27,12 +30,11 @@ class CheckScreen(QWidget):
         layout.addSpacing(40)
 
         container = QWidget()
-        container.setFixedSize(1018, 1348)
+        container.setFixedSize(1018, 1000)
         container.setStyleSheet("""
             QWidget {
                 background-color: #F5E7C6;
-                border-top-left-radius: 30px;
-                border-top-right-radius: 30px;
+                border-radius: 30px;
             }
         """)
         container.setAttribute(Qt.WidgetAttribute.WA_StyledBackground, True)
@@ -44,7 +46,7 @@ class CheckScreen(QWidget):
         
         scroll_area = QScrollArea()
         scroll_area.setWidgetResizable(True)
-        scroll_area.setFixedSize(1018, 1348)
+        scroll_area.setFixedSize(1018, 1000)
         scroll_area.setStyleSheet("""
             QScrollArea {
                 background-color: #F5E7C6;
@@ -91,6 +93,7 @@ class CheckScreen(QWidget):
                 padding: 7px;
             """)
             item.setAlignment(Qt.AlignmentFlag.AlignLeft | Qt.AlignmentFlag.AlignVCenter)
+            self.scroll_layout.addSpacing(10)
             self.scroll_layout.addWidget(item)
         
         self.scroll_layout.addStretch()
@@ -98,14 +101,65 @@ class CheckScreen(QWidget):
         container_layout.addWidget(scroll_area, alignment=Qt.AlignmentFlag.AlignCenter)
 
         layout.addWidget(container, alignment=Qt.AlignmentFlag.AlignCenter)
-        layout.addSpacing(40)
+        layout.addSpacing(100)
+
+        # 총 수량, 총액 영역
+        label_layout = QHBoxLayout()
+        label_layout.setContentsMargins(50, 10, 50, 10)
+        label_layout.setSpacing(0)
+        label_layout.setAlignment(Qt.AlignmentFlag.AlignHCenter)
+
+        left_layout = QVBoxLayout()
+        left_layout.setSpacing(100)
+
+        total_qty_label = QLabel("총 수량")
+        total_qty_label.setStyleSheet("""
+            color: #222222;
+            font-size: 30pt;
+        """)
+        total_qty_label.setAlignment(Qt.AlignmentFlag.AlignLeft)
+        left_layout.addWidget(total_qty_label)
+
+        total_amount_label = QLabel("총액")
+        total_amount_label.setStyleSheet("""
+            color: #222222;
+            font-size: 30pt;
+        """)
+        total_amount_label.setAlignment(Qt.AlignmentFlag.AlignLeft)
+        left_layout.addWidget(total_amount_label)
+
+        label_layout.addLayout(left_layout, 1)
+
+        self.total_qty_value_contents = "100"
+        right_layout = QVBoxLayout()
+        right_layout.setSpacing(100)
+
+        total_qty_value = QLabel(self.total_qty_value_contents)
+        total_qty_value.setStyleSheet("""
+            color: #222222;
+            font-size: 30pt;
+        """)
+        total_qty_value.setAlignment(Qt.AlignmentFlag.AlignRight)
+        right_layout.addWidget(total_qty_value)
+
+        total_amount_value = QLabel(self.total_amount_value_contents)
+        total_amount_value.setStyleSheet("""
+            color: #222222;
+            font-size: 30pt;
+        """)
+        total_amount_value.setAlignment(Qt.AlignmentFlag.AlignRight)
+        right_layout.addWidget(total_amount_value)
+
+        label_layout.addLayout(right_layout, 1)
+
+        layout.addLayout(label_layout)
 
         # 버튼 영역
         button_layout = QHBoxLayout()
         button_layout.setSpacing(100)
-        button_layout.setContentsMargins(20, 0, 20, 20)
+        button_layout.setContentsMargins(20, 0, 20, 100)
         
-        call_btn = QPushButton("뒤로")
+        call_btn = QPushButton("관리자 호출")
         call_btn.setStyleSheet("""
             QPushButton {
                 font-size: 40px;
@@ -140,8 +194,9 @@ class CheckScreen(QWidget):
         button_layout.addWidget(call_btn)
         button_layout.addWidget(pay_btn)
         
-        layout.addLayout(button_layout)
         layout.addStretch()
+        layout.addSpacing(40)
+        layout.addLayout(button_layout)
         
         self.setLayout(layout)
 
