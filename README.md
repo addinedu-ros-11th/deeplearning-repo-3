@@ -41,3 +41,8 @@ CCTV 영상과 딥러닝 기반 컴퓨터 비전 기술을 활용하여
 관리자 대시보드에서 운영 상 의사결정이 가능한 지표와 알림을 제공
 
 매출 통계와 재고 현황 등 운영 지표 조회 페이지 포함
+
+
+- `central-api/` : Cloud Run Central 서버
+- `ai-inference/` : Compute Engine GPU VM 추론 서버
+- `DEPLOYMENT.md` : End-to-End 배포 Runbook 

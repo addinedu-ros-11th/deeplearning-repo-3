@@ -1,0 +1,14 @@
+[Unit]
+Description=Smart Cafe AI Inference API
+After=network.target
+
+[Service]
+Type=simple
+WorkingDirectory=/opt/ai-inference
+EnvironmentFile=/etc/ai-inference.env
+ExecStart=/opt/ai-inference/.venv/bin/uvicorn app.main:app --host 0.0.0.0 --port 9000
+Restart=always
+RestartSec=3
+
+[Install]
+WantedBy=multi-user.target

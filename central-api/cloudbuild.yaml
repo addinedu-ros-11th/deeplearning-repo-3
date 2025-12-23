@@ -1,0 +1,22 @@
+# Optional: Cloud Build config to build and push a container image to Artifact Registry.
+# Usage:
+#   gcloud builds submit --config cloudbuild.yaml --substitutions=_REGION=asia-northeast3,_REPO=my-repo,_IMAGE=smart-cafe-api
+
+substitutions:
+  _REGION: asia-northeast3
+  _REPO: REPLACE_ME
+  _IMAGE: bake-sight-api
+
+steps:
+  - name: gcr.io/cloud-builders/docker
+    args:
+      - build
+      - "-t"
+      - "${_REGION}-docker.pkg.dev/$PROJECT_ID/${_REPO}/${_IMAGE}:$SHORT_SHA"
+      - "-t"
+      - "${_REGION}-docker.pkg.dev/$PROJECT_ID/${_REPO}/${_IMAGE}:latest"
+      - "."
+
+images:
+  - "${_REGION}-docker.pkg.dev/$PROJECT_ID/${_REPO}/${_IMAGE}:$SHORT_SHA"
+  - "${_REGION}-docker.pkg.dev/$PROJECT_ID/${_REPO}/${_IMAGE}:latest"
