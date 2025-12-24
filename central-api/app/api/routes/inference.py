@@ -6,11 +6,37 @@ from app.core.security import require_admin_key
 from app.db.models import TraySession, RecognitionRun, DecisionState, Review, ReviewStatus, Store, Device, CctvEvent, CctvEventClip, CctvEventType, CctvEventStatus, DeviceType
 from app.schemas.inference import InferTrayRequest, InferTrayResponse, CctvInferRequest, CctvInferResponse
 from app.services.ai_client import AIClient, AIClientError
+from sqlalchemy import text
+from app.db.models import (
+    TraySessionStatus, OrderHdr, OrderLine, OrderStatus, MenuItem
+)
 
 router = APIRouter(dependencies=[Depends(require_admin_key)])
 
 def utcnow():
     return datetime.now(timezone.utc).replace(tzinfo=None)
+
+TRAY_TIMEOUT_SEC = 30
+OVERLAP_BLOCK_THRESHOLD_DEFAULT = 0.25
+
+def _set_enum_or_str(obj, field: str, enum_value):
+    # 컬럼이 Enum 타입이든 str 타입이든 모두 안전하게 할당
+    try:
+        setattr(obj, field, enum_value)
+    except Exception:
+        setattr(obj, field, getattr(enum_value, "value", str(enum_value)))
+
+def _get_overlap_threshold_for_session(db: Session, s: TraySession) -> float:
+    try:
+        dv = db.query(Device).filter(Device.device_id == s.checkout_device_id).first()
+        cfg = (dv.config_json or {}) if dv else {}
+        gating = cfg.get("gating") or {}
+        v = gating.get("overlap_block_threshold")
+        if v is None:
+            return OVERLAP_BLOCK_THRESHOLD_DEFAULT
+        return float(v)
+    except Exception:
+        return OVERLAP_BLOCK_THRESHOLD_DEFAULT
 
 @router.post("/tray-sessions/{session_uuid}/infer", response_model=InferTrayResponse)
 def infer_tray(session_uuid: str, body: InferTrayRequest, db: Session = Depends(get_db)):
