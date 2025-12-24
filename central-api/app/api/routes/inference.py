@@ -38,6 +38,34 @@ def _get_overlap_threshold_for_session(db: Session, s: TraySession) -> float:
     except Exception:
         return OVERLAP_BLOCK_THRESHOLD_DEFAULT
 
+def _extract_order_items(result_json: dict) -> dict[int, int]:
+    """
+    AI result_json에서 item_id/qty를 최대한 유연하게 파싱.
+    기대 포맷(권장):
+      result_json.items = [{ "item_id": 101, "qty": 2 }, ...]
+    또는:
+      result_json.instances = [{ "best_item_id": 101, "qty": 2 }, ...]
+    반환: {item_id: total_qty}
+    """
+    items = result_json.get("items") or result_json.get("instances") or []
+    out: dict[int, int] = {}
+    for it in items:
+        if not isinstance(it, dict):
+            continue
+        item_id = it.get("item_id") or it.get("best_item_id") or it.get("menu_item_id")
+        qty = it.get("qty") or it.get("count") or 1
+        if item_id is None:
+            continue
+        try:
+            item_id_i = int(item_id)
+            qty_i = int(qty)
+        except Exception:
+            continue
+        if qty_i <= 0:
+            continue
+        out[item_id_i] = out.get(item_id_i, 0) + qty_i
+    return out
+
 @router.post("/tray-sessions/{session_uuid}/infer", response_model=InferTrayResponse)
 def infer_tray(session_uuid: str, body: InferTrayRequest, db: Session = Depends(get_db)):
     s = db.query(TraySession).filter(TraySession.session_uuid == session_uuid).first()
