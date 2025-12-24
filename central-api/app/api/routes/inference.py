@@ -125,6 +125,27 @@ def infer_tray(session_uuid: str, body: InferTrayRequest, db: Session = Depends(
     if not s:
         raise HTTPException(status_code=404, detail="session not found")
 
+    # 1) 세션 상태 가드
+    if str(getattr(s, "status")) != str(TraySessionStatus.ACTIVE):
+        raise HTTPException(status_code=400, detail=f"session not ACTIVE (status={s.status})")
+
+    # 2) TIMEOUT 강제(30초)
+    now = utcnow()
+    try:
+        if s.started_at and (now - s.started_at).total_seconds() > TRAY_TIMEOUT_SEC:
+            _set_enum_or_str(s, "status", TraySessionStatus.TIMEOUT)
+            s.ended_at = now
+            s.end_reason = "TIMEOUT"
+            db.add(s)
+            db.commit()
+            raise HTTPException(status_code=400, detail="session timeout")
+    except HTTPException:
+        raise
+    except Exception:
+        # started_at 파싱/타입 이슈가 있어도 데모는 진행
+        pass
+
+    # attempt 계산
     last = (
         db.query(RecognitionRun)
         .filter(RecognitionRun.session_id == s.session_id)
@@ -133,11 +154,13 @@ def infer_tray(session_uuid: str, body: InferTrayRequest, db: Session = Depends(
     )
     attempt_no = 1 if not last else (last.attempt_no + 1)
     if attempt_no > s.attempt_limit:
-        raise HTTPException(status_code=400, detail="attempt limit exceeded")
+        raise HTTPException(status_code=400, detail="attempt limit exceeded (call admin/manual)")
 
     payload = body.model_dump()
     payload["session_uuid"] = session_uuid
+    payload["attempt_no"] = attempt_no
 
+    # 3) AI 호출
     try:
         ai = AIClient()
         ai_resp = ai.infer_tray(payload, timeout_s=10.0)
@@ -148,38 +171,175 @@ def infer_tray(session_uuid: str, body: InferTrayRequest, db: Session = Depends(
     if decision not in ("AUTO", "REVIEW", "UNKNOWN"):
         raise HTTPException(status_code=502, detail="invalid decision from AI")
 
+    overlap_score = ai_resp.get("overlap_score")
+    result_json = ai_resp.get("result_json", {}) or {}
+
+    # 4) OVERLAP 차단(리뷰 생성 금지, UI 안내만)
+    # - threshold는 device.config_json로 override 가능
+    try:
+        thr = _get_overlap_threshold_for_session(db, s)
+        if overlap_score is not None and float(overlap_score) >= float(thr):
+            # decision을 REVIEW로 내려 UI가 재배치 유도하게 함
+            decision = "REVIEW"
+            result_json["block_reason"] = "OVERLAP"
+            result_json["overlap_threshold"] = thr
+    except Exception:
+        # overlap 처리 실패해도 infer는 진행
+        pass
+
+    # 5) recognition_run 저장(항상 저장: 감사/디버깅)
     run = RecognitionRun(
         session_id=s.session_id,
         attempt_no=attempt_no,
-        overlap_score=ai_resp.get("overlap_score"),
+        overlap_score=overlap_score,
         decision=DecisionState(decision),
-        result_json=ai_resp.get("result_json", {}),
-        created_at=utcnow(),
+        result_json=result_json,
+        created_at=now,
     )
     db.add(run)
     db.commit()
     db.refresh(run)
 
+    # 6) REVIEW/UNKNOWN 처리
+    # - OVERLAP(block_reason=OVERLAP)일 때는 review row를 만들지 않음
     if decision in ("REVIEW", "UNKNOWN"):
-        open_review = db.query(Review).filter(Review.session_id == s.session_id, Review.status == ReviewStatus.OPEN).first()
+        if result_json.get("block_reason") != "OVERLAP":
+            open_review = (
+                db.query(Review)
+                .filter(Review.session_id == s.session_id, Review.status == ReviewStatus.OPEN)
+                .first()
+            )
+            if not open_review:
+                r = Review(
+                    session_id=s.session_id,
+                    run_id=run.run_id,
+                    status=ReviewStatus.OPEN,
+                    reason=decision,
+                    top_k_json=result_json.get("top_k"),
+                    confirmed_items_json=None,
+                    created_at=utcnow(),
+                )
+                db.add(r)
+                db.commit()
+
+        return InferTrayResponse(
+            overlap_score=overlap_score,
+            decision=decision,
+            result_json=result_json,
+        )
+
+    # 7) AUTO 처리: 주문 자동 생성 + 세션 종료(PAID)
+    # - 이미 주문이 있으면 재생성하지 않음
+    try:
+        order = _ensure_order_for_session(db, s, result_json)
+        _set_enum_or_str(s, "status", TraySessionStatus.PAID)
+        s.ended_at = utcnow()
+        s.end_reason = "PAID"
+        db.add(s)
+        db.commit()
+
+        # UI 편의: result_json에 주문 요약 넣어줌(스키마 영향 없음: Any)
+        result_json["order"] = {
+            "order_id": order.order_id,
+            "total_amount_won": order.total_amount_won,
+        }
+
+        return InferTrayResponse(
+            overlap_score=overlap_score,
+            decision="AUTO",
+            result_json=result_json,
+        )
+    except Exception as e:
+        # AUTO인데 주문 생성이 실패하면 안전상 REVIEW로 강등 + 리뷰 생성
+        result_json["block_reason"] = "ORDER_CREATE_FAILED"
+        result_json["error"] = str(e)
+
+        # run은 이미 저장됨. 리뷰 생성(OPEN)로 전환
+        open_review = (
+            db.query(Review)
+            .filter(Review.session_id == s.session_id, Review.status == ReviewStatus.OPEN)
+            .first()
+        )
         if not open_review:
             r = Review(
                 session_id=s.session_id,
                 run_id=run.run_id,
                 status=ReviewStatus.OPEN,
-                reason=decision,
-                top_k_json=ai_resp.get("result_json", {}).get("top_k"),
+                reason="REVIEW",
+                top_k_json=result_json.get("top_k"),
                 confirmed_items_json=None,
                 created_at=utcnow(),
             )
             db.add(r)
             db.commit()
 
-    return InferTrayResponse(
-        overlap_score=ai_resp.get("overlap_score"),
-        decision=decision,
-        result_json=ai_resp.get("result_json", {}),
-    )
+        return InferTrayResponse(
+            overlap_score=overlap_score,
+            decision="REVIEW",
+            result_json=result_json,
+        )
+
+# @router.post("/tray-sessions/{session_uuid}/infer", response_model=InferTrayResponse)
+# def infer_tray(session_uuid: str, body: InferTrayRequest, db: Session = Depends(get_db)):
+#     s = db.query(TraySession).filter(TraySession.session_uuid == session_uuid).first()
+#     if not s:
+#         raise HTTPException(status_code=404, detail="session not found")
+
+#     last = (
+#         db.query(RecognitionRun)
+#         .filter(RecognitionRun.session_id == s.session_id)
+#         .order_by(RecognitionRun.attempt_no.desc())
+#         .first()
+#     )
+#     attempt_no = 1 if not last else (last.attempt_no + 1)
+#     if attempt_no > s.attempt_limit:
+#         raise HTTPException(status_code=400, detail="attempt limit exceeded")
+
+#     payload = body.model_dump()
+#     payload["session_uuid"] = session_uuid
+
+#     try:
+#         ai = AIClient()
+#         ai_resp = ai.infer_tray(payload, timeout_s=10.0)
+#     except AIClientError as e:
+#         raise HTTPException(status_code=502, detail=str(e))
+
+#     decision = ai_resp.get("decision")
+#     if decision not in ("AUTO", "REVIEW", "UNKNOWN"):
+#         raise HTTPException(status_code=502, detail="invalid decision from AI")
+
+#     run = RecognitionRun(
+#         session_id=s.session_id,
+#         attempt_no=attempt_no,
+#         overlap_score=ai_resp.get("overlap_score"),
+#         decision=DecisionState(decision),
+#         result_json=ai_resp.get("result_json", {}),
+#         created_at=utcnow(),
+#     )
+#     db.add(run)
+#     db.commit()
+#     db.refresh(run)
+
+#     if decision in ("REVIEW", "UNKNOWN"):
+#         open_review = db.query(Review).filter(Review.session_id == s.session_id, Review.status == ReviewStatus.OPEN).first()
+#         if not open_review:
+#             r = Review(
+#                 session_id=s.session_id,
+#                 run_id=run.run_id,
+#                 status=ReviewStatus.OPEN,
+#                 reason=decision,
+#                 top_k_json=ai_resp.get("result_json", {}).get("top_k"),
+#                 confirmed_items_json=None,
+#                 created_at=utcnow(),
+#             )
+#             db.add(r)
+#             db.commit()
+
+#     return InferTrayResponse(
+#         overlap_score=ai_resp.get("overlap_score"),
+#         decision=decision,
+#         result_json=ai_resp.get("result_json", {}),
+#     )
 
 @router.post("/cctv/infer", response_model=CctvInferResponse)
 def infer_cctv(body: CctvInferRequest, db: Session = Depends(get_db)):
