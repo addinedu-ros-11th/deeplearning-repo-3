@@ -156,9 +156,14 @@ def infer_tray(session_uuid: str, body: InferTrayRequest, db: Session = Depends(
     if attempt_no > s.attempt_limit:
         raise HTTPException(status_code=400, detail="attempt limit exceeded (call admin/manual)")
 
-    payload = body.model_dump()
-    payload["session_uuid"] = session_uuid
-    payload["attempt_no"] = attempt_no
+    payload = {
+        "session_uuid": session_uuid,
+        "attempt_no": attempt_no,
+        "store_code": body.store_code,
+        "device_code": body.device_code,
+        "frame_b64": body.frame_b64,
+        "frame_gcs_uri": body.frame_gcs_uri,
+    }
 
     # 3) AI 호출
     try:
