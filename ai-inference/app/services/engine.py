@@ -12,6 +12,9 @@ from app.services.gcs_utils import download_to
 from app.services.prototype_index import PrototypeIndex, load_index
 from app.services.central_client import CentralClient, CentralClientError
 
+def _ensure_cache_dir():
+    os.makedirs(settings.CACHE_DIR, exist_ok=True)
+
 class InferenceEngine:
     def __init__(self) -> None:
         self.mock = bool(settings.AI_MOCK_MODE)
@@ -149,19 +152,21 @@ class InferenceEngine:
         return {"events": []}
 
     def _load_rgb_image_from_payload(self, payload: dict[str, Any]) -> np.ndarray:
-    frame_b64 = payload.get("frame_b64")
-    frame_gcs_uri = payload.get("frame_gcs_uri")
+        _ensure_cache_dir()
 
-    if frame_b64:
-        raw = base64.b64decode(frame_b64)
-        img = Image.open(io.BytesIO(raw)).convert("RGB")
-        return np.array(img)  # (H,W,3) uint8
+        frame_b64 = payload.get("frame_b64")
+        frame_gcs_uri = payload.get("frame_gcs_uri")
 
-    if frame_gcs_uri:
-        local = f"{settings.CACHE_DIR}/tray_{datetime.now(timezone.utc).timestamp()}.jpg"
-        download_to(frame_gcs_uri, local)
-        img = Image.open(local).convert("RGB")
-        return np.array(img)
+        if frame_b64:
+            raw = base64.b64decode(frame_b64)
+            img = Image.open(io.BytesIO(raw)).convert("RGB")
+            return np.array(img)  # (H,W,3) uint8
 
-    raise ValueError("frame_b64 or frame_gcs_uri required")
+        if frame_gcs_uri:
+            local = f"{settings.CACHE_DIR}/tray_{datetime.now(timezone.utc).timestamp()}.jpg"
+            download_to(frame_gcs_uri, local)
+            img = Image.open(local).convert("RGB")
+            return np.array(img)
+
+        raise ValueError("frame_b64 or frame_gcs_uri required")
 
