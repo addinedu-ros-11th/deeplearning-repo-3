@@ -1,5 +1,9 @@
 from __future__ import annotations
 
+import base64
+import io
+from PIL import Image
+
 import numpy as np
 from datetime import datetime, timezone, timedelta
 from typing import Any
@@ -96,6 +100,8 @@ class InferenceEngine:
         if not self.prototype_index:
             return {"overlap_score": None, "decision": "UNKNOWN", "result_json": {"error": "prototype index not loaded"}}
 
+        img = self._load_rgb_image_from_payload(payload)    
+
         # REAL 스켈레톤: 랜덤 임베딩으로 kNN 흐름만 시연
         D = self.prototype_index.vectors.shape[1]
         q = np.random.randn(D).astype(np.float32)
@@ -111,6 +117,7 @@ class InferenceEngine:
             "decision": decision,
             "result_json": {
                 "mode": "real_skeleton",
+                "input": {"shape": list(img.shape)},
                 "instances": [{
                     "instance_id": 1,
                     "confidence": 0.9,
@@ -120,7 +127,8 @@ class InferenceEngine:
                     "match_margin": margin,
                     "state": state,
                     "qty": 1
-                }]
+                }],
+                "items": [{"item_id": int(best_item), "qty": 1}],
             }
         }
 
@@ -139,3 +147,21 @@ class InferenceEngine:
                 ]
             }
         return {"events": []}
+
+    def _load_rgb_image_from_payload(self, payload: dict[str, Any]) -> np.ndarray:
+    frame_b64 = payload.get("frame_b64")
+    frame_gcs_uri = payload.get("frame_gcs_uri")
+
+    if frame_b64:
+        raw = base64.b64decode(frame_b64)
+        img = Image.open(io.BytesIO(raw)).convert("RGB")
+        return np.array(img)  # (H,W,3) uint8
+
+    if frame_gcs_uri:
+        local = f"{settings.CACHE_DIR}/tray_{datetime.now(timezone.utc).timestamp()}.jpg"
+        download_to(frame_gcs_uri, local)
+        img = Image.open(local).convert("RGB")
+        return np.array(img)
+
+    raise ValueError("frame_b64 or frame_gcs_uri required")
+
