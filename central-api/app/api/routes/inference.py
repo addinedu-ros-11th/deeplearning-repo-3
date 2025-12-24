@@ -66,6 +66,59 @@ def _extract_order_items(result_json: dict) -> dict[int, int]:
         out[item_id_i] = out.get(item_id_i, 0) + qty_i
     return out
 
+def _ensure_order_for_session(db: Session, s: TraySession, result_json: dict) -> OrderHdr:
+    """
+    AUTO일 때만 호출. 이미 주문이 있으면 기존 주문 반환.
+    주문은 서버가 menu_item.price_won을 기준으로 생성.
+    """
+    existing = db.query(OrderHdr).filter(OrderHdr.session_id == s.session_id).first()
+    if existing:
+        return existing
+
+    item_qty = _extract_order_items(result_json)
+    if not item_qty:
+        # AUTO인데도 품목이 없으면 안전상 REVIEW로 전환하는 게 맞지만
+        # 여기서는 호출부에서 처리하도록 예외를 던짐
+        raise ValueError("empty order items in result_json")
+
+    menu_rows = db.query(MenuItem).filter(MenuItem.item_id.in_(list(item_qty.keys()))).all()
+    price_map = {m.item_id: int(m.price_won) for m in menu_rows}
+
+    # 가격 매칭 안 되는 item_id가 있으면 안전상 결제 생성 금지
+    missing = [iid for iid in item_qty.keys() if iid not in price_map]
+    if missing:
+        raise ValueError(f"price not found for item_ids={missing}")
+
+    total = 0
+    now = utcnow()
+
+    order = OrderHdr(
+        store_id=s.store_id,
+        session_id=s.session_id,
+        total_amount_won=0,  # 아래에서 업데이트
+        status=OrderStatus.PAID,
+        created_at=now,
+    )
+    db.add(order)
+    db.flush()  # order.order_id 확보
+
+    for iid, qty in item_qty.items():
+        unit = price_map[iid]
+        line_amount = unit * qty
+        total += line_amount
+        db.add(
+            OrderLine(
+                order_id=order.order_id,
+                item_id=iid,
+                qty=qty,
+                unit_price_won=unit,
+                line_amount_won=line_amount,
+            )
+        )
+
+    order.total_amount_won = total
+    return order
+
 @router.post("/tray-sessions/{session_uuid}/infer", response_model=InferTrayResponse)
 def infer_tray(session_uuid: str, body: InferTrayRequest, db: Session = Depends(get_db)):
     s = db.query(TraySession).filter(TraySession.session_uuid == session_uuid).first()
