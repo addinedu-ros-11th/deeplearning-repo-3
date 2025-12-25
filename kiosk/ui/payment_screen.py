@@ -153,7 +153,7 @@ class PaymentScreen(QWidget):
 
         logging.info(f"[TEST] 주문 데이터: {order_data}")
         self.order_worker = OrderSaveWorker(
-            api_url=f"orders/save",
+            api_url="/api/v1/orders/save",
             order_data=order_data
         )
         

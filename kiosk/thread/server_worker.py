@@ -9,7 +9,7 @@ class APIWorker(QThread):
     finished = pyqtSignal()
     error = pyqtSignal(str)
     success = pyqtSignal(dict)
-    
+
     def __init__(self, api_url, method="GET", data=None, headers=None):
         """서버의 API를 비동기로 호출하는 스레드"""
         super().__init__()
@@ -17,6 +17,9 @@ class APIWorker(QThread):
         self.method = method.upper()
         self.data = data
         self.headers = headers or {}
+        admin_key = os.getenv("ADMIN_KEY")
+        if admin_key:
+            self.headers["X-ADMIN-KEY"] = admin_key
         
     def run(self):
         """스레드에서 실행될 코드"""

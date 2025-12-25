@@ -33,7 +33,7 @@ class ScanScreen(QWidget):
         
         # APIWorker로 비동기 요청
         self.session_worker = APIWorker(
-            api_url=f"/sessions/create",
+            api_url="/api/v1/sessions/create",
             method="POST",
             data=session_data
         )
@@ -51,7 +51,7 @@ class ScanScreen(QWidget):
         self.session_id = result.get("session_id")
         self.data.set_session_id(self.session_id)
         self.data.set_store_id(self.store_id)
-        
+
         logging.info(f"[세션생성] 세션 생성 완료: {self.session_id}")
     
     def on_session_error(self, error_msg):
@@ -73,6 +73,7 @@ class ScanScreen(QWidget):
         """세션 생성 요청 완료 (성공/실패 무관)"""
         logging.info("[세션생성] 세션 생성 요청 종료")
         self.session_worker = None
+
     def init_ui(self):
         layout = QVBoxLayout()
 
@@ -125,7 +126,7 @@ class ScanScreen(QWidget):
             }
         """)
         call_btn.clicked.connect(lambda: self.switch_callback('home'))
-        
+
         pay_btn = QPushButton("결제")
         pay_btn.setStyleSheet("""
             QPushButton {
@@ -245,7 +246,7 @@ class ScanScreen(QWidget):
     def fetch_menu_item(self, item_name: str):
         """서버에서 메뉴 아이템 정보 조회"""
         self.menu_worker = APIWorker(
-            api_url=f"/menu-items/{item_name}",
+            api_url=f"/api/v1/menu-items/{item_name}",
             method="GET"
         )
         self.menu_worker.success.connect(lambda result: self.on_menu_item_fetched(result))
@@ -304,6 +305,7 @@ class ScanScreen(QWidget):
                 self.scroll_layout.addWidget(item_widget, alignment=Qt.AlignmentFlag.AlignHCenter)
         
         self.scroll_layout.addStretch()
+
 
 # 테스트 코드
 if __name__ == '__main__':
