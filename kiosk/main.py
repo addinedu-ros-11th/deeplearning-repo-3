@@ -13,6 +13,9 @@ class KioskApp(QMainWindow):
         self.setWindowTitle("키오스크")
         self.setGeometry(100, 100, 1080, 1920)
         self.setStyleSheet("background-color: #FAF3E1;")
+
+        self.store_id = 1
+        self.device_id = 1
         
         # 스택 위젯 생성
         self.stacked = QStackedWidget()
@@ -22,7 +25,7 @@ class KioskApp(QMainWindow):
 
         # 각 화면 생성
         self.home_screen = HomeScreen(self.switch_screen)
-        self.scan_screen = ScanScreen(self.switch_screen, self.data)
+        self.scan_screen = ScanScreen(self.switch_screen, self.data, self.store_id, self.device_id)
         self.check_screen = CheckScreen(self.switch_screen, self.data)
         self.payment_screen = PaymentScreen(self.switch_screen, self.data)
         

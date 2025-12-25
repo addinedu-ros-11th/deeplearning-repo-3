@@ -2,9 +2,10 @@ from PyQt6.QtWidgets import (QApplication, QWidget, QVBoxLayout, QHBoxLayout, QP
 from PyQt6.QtCore import Qt
 
 class CheckScreen(QWidget):
-    def __init__(self, switch_callback):
+    def __init__(self, switch_callback, data):
         super().__init__()
         self.switch_callback = switch_callback
+        self.data = data
         self.init_ui()
     
     def init_ui(self):
@@ -206,12 +207,14 @@ class CheckScreen(QWidget):
 
 if __name__ == '__main__':
     import sys
+    from model.cart_data import CartData
     app = QApplication(sys.argv)
-    
+
     def dummy_callback(screen):
         print(f"Callback called: {screen}")
-    
-    window = CheckScreen(dummy_callback)
+
+    dummy_data = CartData()
+    window = CheckScreen(dummy_callback, dummy_data)
     window.show()
-    
+
     sys.exit(app.exec())
