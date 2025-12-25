@@ -2,9 +2,10 @@ from PyQt6.QtWidgets import (QApplication, QWidget, QVBoxLayout, QHBoxLayout, QP
 from PyQt6.QtCore import Qt
 
 class ScanScreen(QWidget):
-    def __init__(self, switch_callback):
+    def __init__(self, switch_callback, data):
         super().__init__()
         self.switch_callback = switch_callback
+        self.data = data
         self.selected_items = []
         self.init_ui()
 

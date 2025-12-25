@@ -1,6 +1,6 @@
 from PyQt6.QtWidgets import (QApplication, QMainWindow, QStackedWidget)
 
-
+from model.cart_data import CartData
 from ui.home_screen import HomeScreen
 from ui.scan_screen import ScanScreen
 from ui.payment_screen import PaymentScreen
@@ -17,10 +17,13 @@ class KioskApp(QMainWindow):
         # 스택 위젯 생성
         self.stacked = QStackedWidget()
         
+        # 장바구니 데이터 모델 생성
+        self.data = CartData()
+
         # 각 화면 생성
         self.home_screen = HomeScreen(self.switch_screen)
-        self.scan_screen = ScanScreen(self.switch_screen)
-        self.check_screen = CheckScreen(self.switch_screen)
+        self.scan_screen = ScanScreen(self.switch_screen, self.data)
+        self.check_screen = CheckScreen(self.switch_screen, self.data)
         self.payment_screen = PaymentScreen(self.switch_screen)
         
         # 스택에 추가

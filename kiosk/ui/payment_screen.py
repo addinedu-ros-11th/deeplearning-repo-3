@@ -6,12 +6,13 @@ from popup.payment_popup import PaymentTimeoutPopup, PaymentCompletePopup
 from time import time
 
 class PaymentScreen(QWidget):
-    def __init__(self, switch_callback):
+    def __init__(self, switch_callback, data):
         super().__init__()
         self.switch_callback = switch_callback
         self.is_payed = False
         self.timer_started = False
         self.timeout_timer = None
+        self.data = data
         self.init_ui()
     
     def init_ui(self):
