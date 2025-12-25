@@ -24,7 +24,7 @@ class KioskApp(QMainWindow):
         self.home_screen = HomeScreen(self.switch_screen)
         self.scan_screen = ScanScreen(self.switch_screen, self.data)
         self.check_screen = CheckScreen(self.switch_screen, self.data)
-        self.payment_screen = PaymentScreen(self.switch_screen)
+        self.payment_screen = PaymentScreen(self.switch_screen, self.data)
         
         # 스택에 추가
         self.stacked.addWidget(self.home_screen)      # index 0
