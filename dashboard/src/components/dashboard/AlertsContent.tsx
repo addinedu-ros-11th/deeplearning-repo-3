@@ -1,15 +1,31 @@
-import { useState, useMemo } from "react";
+import { useState, useEffect, useMemo } from "react";
 import { Bell, AlertTriangle, CheckCircle, XCircle, Filter, Clock } from "lucide-react";
 import { cn } from "@/lib/utils";
 import type { Alert, AlertSeverity, AlertCategory } from "@/api/types";
-import { mockAlertsFull } from "@/api/mockData";
+import { fetchAlerts } from "@/api/alertsApi";
 
 const AlertsContent = () => {
   const [filter, setFilter] = useState<AlertSeverity | "all">("all");
   const [categoryFilter, setCategoryFilter] = useState<AlertCategory | "all">("all");
+  const [alerts, setAlerts] = useState<Alert[]>([]);
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState<string | null>(null);
 
-  // Data from API layer
-  const alerts: Alert[] = mockAlertsFull;
+  useEffect(() => {
+    const loadData = async () => {
+      try {
+        setLoading(true);
+        const data = await fetchAlerts();
+        setAlerts(data);
+      } catch (err) {
+        console.error("Alerts data fetch error:", err);
+        setError(err instanceof Error ? err.message : "데이터를 불러오는데 실패했습니다");
+      } finally {
+        setLoading(false);
+      }
+    };
+    loadData();
+  }, []);
 
   const filteredAlerts = useMemo(() => {
     return alerts.filter((alert) => {
@@ -46,6 +62,28 @@ const AlertsContent = () => {
     return labels[category];
   };
 
+  if (loading) {
+    return (
+      <div className="flex items-center justify-center h-64">
+        <div className="text-center">
+          <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-primary mx-auto mb-4"></div>
+          <p className="text-muted-foreground">알림 데이터를 불러오는 중...</p>
+        </div>
+      </div>
+    );
+  }
+
+  if (error) {
+    return (
+      <div className="flex items-center justify-center h-64">
+        <div className="text-center">
+          <p className="text-destructive text-lg mb-2">오류 발생</p>
+          <p className="text-muted-foreground">{error}</p>
+        </div>
+      </div>
+    );
+  }
+
   return (
     <div className="space-y-6">
       {/* Header */}
@@ -59,10 +97,10 @@ const AlertsContent = () => {
         </div>
         <div className="flex items-center gap-3">
           <div className="bg-destructive/20 text-destructive px-3 py-1.5 rounded-lg text-sm font-medium">
-            🚨 긴급: {stats.critical}
+            긴급: {stats.critical}
           </div>
           <div className="bg-primary/20 text-primary px-3 py-1.5 rounded-lg text-sm font-medium">
-            📬 미확인: {stats.unread}
+            미확인: {stats.unread}
           </div>
         </div>
       </div>
@@ -109,7 +147,11 @@ const AlertsContent = () => {
 
       {/* Alerts List */}
       <div className="space-y-3">
-        {filteredAlerts.map((alert, index) => (
+        {filteredAlerts.length === 0 ? (
+          <div className="text-center py-12 text-muted-foreground">
+            알림이 없습니다
+          </div>
+        ) : filteredAlerts.map((alert, index) => (
           <div
             key={alert.id}
             className={cn(

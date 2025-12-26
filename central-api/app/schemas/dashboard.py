@@ -1,7 +1,56 @@
 from pydantic import BaseModel
+from typing import Literal, Optional
 
 class TopMenuRow(BaseModel):
     item_id: int
     name: str
     qty: int
     amount_won: int
+
+
+class KPIRow(BaseModel):
+    icon: str
+    title: str
+    value: str
+    subtitle: str
+    trend: Literal["up", "down", "neutral"]
+    variant: Literal["revenue", "customers", "occupancy", "alerts"]
+
+
+class TableRow(BaseModel):
+    id: int
+    status: Literal["occupied", "cleaning", "abnormal", "vacant"]
+    customers: Optional[int] = None
+    occupancy_time: Optional[str] = None
+    order_amount: Optional[str] = None
+
+
+class HourlyRevenueRow(BaseModel):
+    time: str
+    revenue: int
+
+
+# Analytics 스키마
+class WeeklyDataRow(BaseModel):
+    day: str
+    revenue: int
+    customers: int
+
+
+class HourlyCustomersRow(BaseModel):
+    hour: str
+    customers: int
+
+
+class CategoryDataRow(BaseModel):
+    name: str
+    value: int
+    color: str
+
+
+class AnalyticsStatRow(BaseModel):
+    label: str
+    value: str
+    change: str
+    trend: Literal["up", "down"]
+    iconType: Literal["trending", "users", "shopping", "clock"]

@@ -1,7 +1,6 @@
 import { cn } from "@/lib/utils";
 import { Badge } from "@/components/ui/badge";
 import type { Transaction, TransactionStatus } from "@/api/types";
-import { mockTransactionsShort } from "@/api/mockData";
 
 const statusConfig: Record<TransactionStatus, {
   label: string;
@@ -29,7 +28,7 @@ interface TransactionLogProps {
   transactions?: Transaction[];
 }
 
-const TransactionLog = ({ transactions = mockTransactionsShort }: TransactionLogProps) => {
+const TransactionLog = ({ transactions = [] }: TransactionLogProps) => {
   return (
     <div className="rounded-2xl border border-border bg-card p-6 h-full flex flex-col">
       <div className="flex items-center gap-2 mb-4">
@@ -49,59 +48,67 @@ const TransactionLog = ({ transactions = mockTransactionsShort }: TransactionLog
         ))}
       </div>
 
-      {/* Transaction List */}
-      <div className="flex-1 overflow-auto scrollbar-thin">
-        <table className="w-full">
-          <thead className="sticky top-0 bg-card">
-            <tr className="text-xs text-muted-foreground border-b border-border">
-              <th className="text-left py-3 px-2 font-medium">ID</th>
-              <th className="text-left py-3 px-2 font-medium">기기</th>
-              <th className="text-left py-3 px-2 font-medium">상품</th>
-              <th className="text-right py-3 px-2 font-medium">금액</th>
-              <th className="text-right py-3 px-2 font-medium">상태</th>
-            </tr>
-          </thead>
-          <tbody>
-            {transactions.map((tx, index) => {
-              const config = statusConfig[tx.status];
-              return (
-                <tr 
-                  key={tx.id}
-                  className={cn(
-                    "border-b border-border/50 transition-colors cursor-pointer",
-                    config.row
-                  )}
-                  style={{ animationDelay: `${index * 50}ms` }}
-                >
-                  <td className="py-3 px-2">
-                    <span className="text-sm font-mono text-muted-foreground">{tx.id}</span>
-                  </td>
-                  <td className="py-3 px-2">
-                    <span className="text-sm text-foreground">#{tx.device}</span>
-                  </td>
-                  <td className="py-3 px-2">
-                    <span className="text-sm text-foreground">{tx.product}</span>
-                  </td>
-                  <td className="py-3 px-2 text-right">
-                    <span className="text-sm font-medium text-accent">{tx.amount}</span>
-                  </td>
-                  <td className="py-3 px-2 text-right">
-                    <Badge variant="outline" className={cn("text-xs", config.badge)}>
-                      {tx.status}
-                    </Badge>
-                  </td>
+      {transactions.length === 0 ? (
+        <div className="flex-1 flex items-center justify-center text-muted-foreground">
+          거래 내역이 없습니다
+        </div>
+      ) : (
+        <>
+          {/* Transaction List */}
+          <div className="flex-1 overflow-auto scrollbar-thin">
+            <table className="w-full">
+              <thead className="sticky top-0 bg-card">
+                <tr className="text-xs text-muted-foreground border-b border-border">
+                  <th className="text-left py-3 px-2 font-medium">ID</th>
+                  <th className="text-left py-3 px-2 font-medium">기기</th>
+                  <th className="text-left py-3 px-2 font-medium">상품</th>
+                  <th className="text-right py-3 px-2 font-medium">금액</th>
+                  <th className="text-right py-3 px-2 font-medium">상태</th>
                 </tr>
-              );
-            })}
-          </tbody>
-        </table>
-      </div>
+              </thead>
+              <tbody>
+                {transactions.map((tx, index) => {
+                  const config = statusConfig[tx.status];
+                  return (
+                    <tr
+                      key={tx.id}
+                      className={cn(
+                        "border-b border-border/50 transition-colors cursor-pointer",
+                        config.row
+                      )}
+                      style={{ animationDelay: `${index * 50}ms` }}
+                    >
+                      <td className="py-3 px-2">
+                        <span className="text-sm font-mono text-muted-foreground">{tx.id}</span>
+                      </td>
+                      <td className="py-3 px-2">
+                        <span className="text-sm text-foreground">#{tx.device}</span>
+                      </td>
+                      <td className="py-3 px-2">
+                        <span className="text-sm text-foreground">{tx.product}</span>
+                      </td>
+                      <td className="py-3 px-2 text-right">
+                        <span className="text-sm font-medium text-accent">{tx.amount}</span>
+                      </td>
+                      <td className="py-3 px-2 text-right">
+                        <Badge variant="outline" className={cn("text-xs", config.badge)}>
+                          {tx.status}
+                        </Badge>
+                      </td>
+                    </tr>
+                  );
+                })}
+              </tbody>
+            </table>
+          </div>
 
-      {/* Summary */}
-      <div className="mt-4 pt-4 border-t border-border flex justify-between text-sm">
-        <span className="text-muted-foreground">총 거래</span>
-        <span className="text-foreground font-medium">{transactions.length}건</span>
-      </div>
+          {/* Summary */}
+          <div className="mt-4 pt-4 border-t border-border flex justify-between text-sm">
+            <span className="text-muted-foreground">총 거래</span>
+            <span className="text-foreground font-medium">{transactions.length}건</span>
+          </div>
+        </>
+      )}
     </div>
   );
 };

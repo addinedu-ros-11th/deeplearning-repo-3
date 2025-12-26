@@ -1,14 +1,40 @@
+import { useState, useEffect } from "react";
 import { BarChart3, TrendingUp, TrendingDown, Users, ShoppingBag, Clock } from "lucide-react";
 import { BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, LineChart, Line, PieChart, Pie, Cell } from "recharts";
 import type { WeeklyDataPoint, HourlyDataPoint, CategoryData, AnalyticsStat } from "@/api/types";
-import { mockWeeklyData, mockHourlyCustomers, mockCategoryData, mockAnalyticsStats } from "@/api/mockData";
+import { fetchWeeklyData, fetchHourlyCustomers, fetchCategoryData, fetchAnalyticsStats } from "@/api/analyticsApi";
 
 const AnalyticsContent = () => {
-  // Data from API layer
-  const weeklyData: WeeklyDataPoint[] = mockWeeklyData;
-  const hourlyCustomers: HourlyDataPoint[] = mockHourlyCustomers;
-  const categoryData: CategoryData[] = mockCategoryData;
-  const stats: AnalyticsStat[] = mockAnalyticsStats;
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState<string | null>(null);
+  const [weeklyData, setWeeklyData] = useState<WeeklyDataPoint[]>([]);
+  const [hourlyCustomers, setHourlyCustomers] = useState<HourlyDataPoint[]>([]);
+  const [categoryData, setCategoryData] = useState<CategoryData[]>([]);
+  const [stats, setStats] = useState<AnalyticsStat[]>([]);
+
+  useEffect(() => {
+    const loadData = async () => {
+      try {
+        setLoading(true);
+        const [weekly, hourly, category, analyticsStats] = await Promise.all([
+          fetchWeeklyData(),
+          fetchHourlyCustomers(),
+          fetchCategoryData(),
+          fetchAnalyticsStats(),
+        ]);
+        setWeeklyData(weekly);
+        setHourlyCustomers(hourly);
+        setCategoryData(category);
+        setStats(analyticsStats);
+      } catch (err) {
+        console.error("Analytics data fetch error:", err);
+        setError(err instanceof Error ? err.message : "데이터를 불러오는데 실패했습니다");
+      } finally {
+        setLoading(false);
+      }
+    };
+    loadData();
+  }, []);
 
   const getStatIcon = (iconType: AnalyticsStat["iconType"]) => {
     switch (iconType) {
@@ -18,6 +44,30 @@ const AnalyticsContent = () => {
       case "clock": return Clock;
     }
   };
+
+  if (loading) {
+    return (
+      <div className="flex items-center justify-center h-64">
+        <div className="text-center">
+          <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-primary mx-auto mb-4"></div>
+          <p className="text-muted-foreground">분석 데이터를 불러오는 중...</p>
+        </div>
+      </div>
+    );
+  }
+
+  if (error) {
+    return (
+      <div className="flex items-center justify-center h-64">
+        <div className="text-center">
+          <p className="text-destructive text-lg mb-2">오류 발생</p>
+          <p className="text-muted-foreground">{error}</p>
+        </div>
+      </div>
+    );
+  }
+
+  const hasNoData = stats.length === 0 && weeklyData.length === 0 && hourlyCustomers.length === 0 && categoryData.length === 0;
 
   return (
     <div className="space-y-6">
@@ -30,6 +80,14 @@ const AnalyticsContent = () => {
         <p className="text-muted-foreground mt-1">Analytics Dashboard</p>
       </div>
 
+      {hasNoData ? (
+        <div className="text-center py-20 text-muted-foreground">
+          <BarChart3 className="w-16 h-16 mx-auto mb-4 opacity-50" />
+          <p className="text-lg">분석 데이터가 없습니다</p>
+          <p className="text-sm mt-2">주문 데이터가 쌓이면 분석 결과가 표시됩니다</p>
+        </div>
+      ) : (
+      <>
       {/* Stats Cards */}
       <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4">
         {stats.map((stat, index) => {
@@ -175,6 +233,8 @@ const AnalyticsContent = () => {
           </ResponsiveContainer>
         </div>
       </div>
+      </>
+      )}
     </div>
   );
 };

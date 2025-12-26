@@ -91,7 +91,8 @@ class MenuItem(Base):
     __tablename__ = "menu_item"
 
     item_id = Column(Integer, primary_key=True, autoincrement=True)
-    name = Column(String(128), nullable=False)
+    name_eng = Column(String(128), nullable=False)
+    name_kor = Column(String(128), nullable=False)
     category = Column(String(64))
     price_won = Column(Integer, nullable=False)
     weight_grams = Column(Integer)

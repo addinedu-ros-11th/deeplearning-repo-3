@@ -2,6 +2,46 @@
 // API Types - All data structures for API responses
 // ============================================
 
+// ============================================
+// Central API Response Types (서버 응답 타입)
+// ============================================
+
+export interface OrderLineOut {
+  order_line_id: number;
+  order_id: number;
+  item_id: number;
+  qty: number;
+  unit_price_won: number;
+  line_amount_won: number;
+}
+
+export interface OrderHdrOut {
+  order_id: number;
+  store_id: number;
+  session_id: number;
+  total_amount_won: number;
+  status: string; // PENDING, PAID, CANCELLED 등
+  created_at: string;
+  lines: OrderLineOut[];
+}
+
+export interface ReviewOut {
+  review_id: number;
+  session_id: number;
+  run_id: number | null;
+  status: "OPEN" | "RESOLVED";
+  reason: string;
+  top_k_json: unknown | null;
+  confirmed_items_json: unknown | null;
+  created_at: string;
+  resolved_at: string | null;
+  resolved_by: string | null;
+}
+
+// ============================================
+// Client Types (클라이언트 타입)
+// ============================================
+
 // Dashboard KPI Types
 export interface KPIData {
   icon: string;

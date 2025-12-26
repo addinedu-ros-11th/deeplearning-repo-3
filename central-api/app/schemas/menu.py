@@ -3,7 +3,8 @@ from app.schemas.common import ORMBase
 
 class MenuItemOut(ORMBase):
     item_id: int
-    name: str
+    name_eng: str
+    name_kor: str
     category: str | None = None
     price_won: int
     weight_grams: int | None = None
