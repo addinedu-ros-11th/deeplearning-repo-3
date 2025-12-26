@@ -11,10 +11,7 @@ from PIL import Image
 
 from app.core.config import settings
 from app.services.prototype_index import PrototypeIndex, load_index
-
-
-def _utcnow() -> datetime:
-    return datetime.now(timezone.utc).replace(tzinfo=None)
+from app.services.central_client import CentralClient
 
 
 def _ensure_dir(path: str) -> None:
@@ -48,29 +45,34 @@ class InferenceEngine:
           - device_code: str
           - frame_b64: str (dataURL 포함 가능)
         """
-        session_uuid = str(payload.get("session_uuid") or "").strip() or "no-session"
+        # (schemas.py에서 required로 막지만, 안전망)
+        session_uuid = str(payload.get("session_uuid") or "").strip()
+        store_code = str(payload.get("store_code") or "").strip()
+        device_code = str(payload.get("device_code") or "").strip()
         attempt_no = int(payload.get("attempt_no") or 1)
+
+        if not session_uuid or not store_code or not device_code:
+            raise ValueError("session_uuid/store_code/device_code are required")
 
         # 1) 프레임 decode (+ 원본 bytes 확보)
         frame_bytes, img = self._decode_frame(payload)
 
-        # 2) 로컬 저장 (관리자 리뷰/디버깅용)
+        # 2) 로컬 저장 (PC#2 관리자 디버깅/리뷰용)
         local_path = self._save_tray_frame(session_uuid, attempt_no, frame_bytes)
 
         # 3) MOCK 모드
         if self.mock:
-            # 옵션 A(좌표 오버레이)용 bbox 예시 포함
-            return {
+            res = {
                 "overlap_score": 0.12,
                 "decision": "REVIEW",
                 "result_json": {
                     "mode": "mock",
-                    "local_frame_path": local_path,
+                    "local_frame_path": local_path,  # (선택) 중앙에 저장돼도 PC#2에서만 의미 있음
                     "instances": [
                         {
                             "instance_id": 1,
                             "confidence": 0.92,
-                            "bbox": [120, 80, 260, 210],  # [x1,y1,x2,y2] (픽셀)
+                            "bbox": [120, 80, 260, 210],   # [x1,y1,x2,y2]
                             "label_text": "Plain Bagel",
                             "top_k": [
                                 {"item_id": 101, "distance": 0.1423},
@@ -87,9 +89,13 @@ class InferenceEngine:
                 },
             }
 
+            # ✅ Central 업로드(실패해도 로컬 응답은 유지)
+            self._try_ingest_to_central(session_uuid, store_code, device_code, attempt_no, res)
+            return res
+
         # 4) prototype index 없으면 UNKNOWN
         if not self.prototype_index:
-            return {
+            res = {
                 "overlap_score": None,
                 "decision": "UNKNOWN",
                 "result_json": {
@@ -97,6 +103,8 @@ class InferenceEngine:
                     "local_frame_path": local_path,
                 },
             }
+            self._try_ingest_to_central(session_uuid, store_code, device_code, attempt_no, res)
+            return res
 
         # 5) TODO: 다음 단계에서 YOLO seg + crop -> embedding(q) 생성으로 교체
         # 지금은 skeleton 유지: 랜덤 임베딩으로 knn 흐름만 유지
@@ -111,11 +119,11 @@ class InferenceEngine:
         state = "AUTO" if margin >= 0.03 else "REVIEW"
         decision = "AUTO" if state == "AUTO" else "REVIEW"
 
-        # 옵션 A 오버레이를 위해 bbox 더미라도 포함 (YOLO 붙이면 실제 bbox/mask로 대체)
+        # 옵션 A(좌표 오버레이): bbox 더미라도 포함 (YOLO 붙이면 실제 bbox/mask로 대체)
         h, w = int(img.shape[0]), int(img.shape[1])
         dummy_bbox = [int(w * 0.1), int(h * 0.1), int(w * 0.3), int(h * 0.3)]
 
-        return {
+        res = {
             "overlap_score": 0.0,
             "decision": decision,
             "result_json": {
@@ -139,6 +147,10 @@ class InferenceEngine:
                 "items": [{"item_id": int(best_item), "qty": 1}],
             },
         }
+
+        # ✅ Central 업로드(실패해도 로컬 응답은 유지)
+        self._try_ingest_to_central(session_uuid, store_code, device_code, attempt_no, res)
+        return res
 
     def infer_cctv(self, payload: dict[str, Any]) -> dict[str, Any]:
         now = datetime.now(timezone.utc)
@@ -166,7 +178,7 @@ class InferenceEngine:
 
         s = str(frame_b64).strip()
 
-        # data URL prefix 제거(브라우저/에이전트에서 붙이는 경우 많음)
+        # data URL prefix 제거
         if s.startswith("data:") and "," in s:
             s = s.split(",", 1)[1]
 
@@ -176,7 +188,7 @@ class InferenceEngine:
 
     def _save_tray_frame(self, session_uuid: str, attempt_no: int, frame_bytes: bytes) -> str:
         """
-        로컬 저장 위치:
+        로컬 저장:
           {CACHE_DIR}/tray/{session_uuid}/attempt_{attempt_no}.jpg
         """
         base_dir = os.path.join(settings.CACHE_DIR, "tray", session_uuid)
@@ -185,3 +197,32 @@ class InferenceEngine:
         with open(path, "wb") as f:
             f.write(frame_bytes)
         return path
+
+    def _try_ingest_to_central(
+        self,
+        session_uuid: str,
+        store_code: str,
+        device_code: str,
+        attempt_no: int,
+        res: dict[str, Any],
+    ) -> None:
+        """
+        정책: infer 발생하면 항상 Central 업로드 시도.
+        단, Central 장애가 로컬 추론을 막으면 안 되므로 예외는 삼킴.
+        """
+        try:
+            cc = CentralClient()
+            cc.ingest_tray_result(
+                session_uuid=session_uuid,
+                payload={
+                    "attempt_no": attempt_no,
+                    "store_code": store_code,
+                    "device_code": device_code,
+                    "overlap_score": res.get("overlap_score"),
+                    "decision": res.get("decision"),
+                    "result_json": res.get("result_json", {}),
+                },
+                timeout_s=3.0,  # 데모: 짧게(로컬 UX 보호)
+            )
+        except Exception:
+            pass
