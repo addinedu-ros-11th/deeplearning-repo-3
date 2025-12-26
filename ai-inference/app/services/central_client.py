@@ -111,17 +111,17 @@ class CentralClient:
         return
 
     def ingest_tray_result(
-    self,
-    session_uuid: str,
-    payload: dict[str, Any],
-    timeout_s: float = 10.0,
-) -> dict[str, Any]:
-    url = f"{self.base}/api/v1/tray-sessions/{session_uuid}/infer"
-    try:
-        with httpx.Client(timeout=timeout_s) as c:
-            r = c.post(url, headers=self._headers(), json=payload)
-        r.raise_for_status()
-        return r.json()
-    except Exception as e:
-        raise CentralClientError(f"ingest_tray_result failed: {e}") from e
+        self,
+        session_uuid: str,
+        payload: dict[str, Any],
+        timeout_s: float = 10.0,
+    ) -> dict[str, Any]:
+        url = f"{self.base}/api/v1/tray-sessions/{session_uuid}/infer"
+        try:
+            with httpx.Client(timeout=timeout_s) as c:
+                r = c.post(url, headers=self._headers(), json=payload)
+            r.raise_for_status()
+            return r.json()
+        except Exception as e:
+            raise CentralClientError(f"ingest_tray_result failed: {e}") from e
 
