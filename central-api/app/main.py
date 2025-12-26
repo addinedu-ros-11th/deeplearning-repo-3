@@ -3,7 +3,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from app.core.config import settings
 from app.api.routes import api_router
 from app.db.session import engine
-from app.db.base import Base
+from sqlalchemy import text
 
 def create_app() -> FastAPI:
     app = FastAPI(
@@ -32,13 +32,24 @@ def create_app() -> FastAPI:
             "api_base": "/api/v1",
         }
 
-    # ✅ 헬스체크: 로드밸런서/모니터링/팀 디버깅용
     @app.get("/health")
     def health():
+        # 프로세스 살아있음(가벼운 체크)
         return {"status": "healthy"}
 
-    app.include_router(api_router, prefix="/api/v1")
+    @app.get("/ready")
+    def ready():
+        # 의존성 준비상태 체크(DB 최소 ping)
+        try:
+            with engine.connect() as conn:
+                conn.execute(text("SELECT 1"))
+            db_ok = True
+        except Exception:
+            db_ok = False
 
+        return {"ready": db_ok}
+
+    app.include_router(api_router, prefix="/api/v1")
     return app
 
 app = create_app()
