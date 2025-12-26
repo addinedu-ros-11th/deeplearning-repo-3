@@ -1,15 +1,31 @@
-import { useState, useMemo } from "react";
+import { useState, useEffect, useMemo } from "react";
 import { CreditCard, Search, Filter, CheckCircle, AlertCircle, XCircle } from "lucide-react";
 import { cn } from "@/lib/utils";
 import type { Transaction, TransactionStatus } from "@/api/types";
-import { mockTransactionsFull } from "@/api/mockData";
+import { fetchTransactions } from "@/api/paymentApi";
 
 const PaymentContent = () => {
   const [filter, setFilter] = useState<TransactionStatus | "ALL">("ALL");
   const [searchQuery, setSearchQuery] = useState("");
+  const [transactions, setTransactions] = useState<Transaction[]>([]);
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState<string | null>(null);
 
-  // Data from API layer
-  const transactions: Transaction[] = mockTransactionsFull;
+  useEffect(() => {
+    const loadData = async () => {
+      try {
+        setLoading(true);
+        const data = await fetchTransactions();
+        setTransactions(data);
+      } catch (err) {
+        console.error("Payment data fetch error:", err);
+        setError(err instanceof Error ? err.message : "데이터를 불러오는데 실패했습니다");
+      } finally {
+        setLoading(false);
+      }
+    };
+    loadData();
+  }, []);
 
   const filteredTransactions = useMemo(() => {
     return transactions.filter((t) => {
@@ -42,6 +58,28 @@ const PaymentContent = () => {
     };
     return styles[status];
   };
+
+  if (loading) {
+    return (
+      <div className="flex items-center justify-center h-64">
+        <div className="text-center">
+          <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-primary mx-auto mb-4"></div>
+          <p className="text-muted-foreground">결제 데이터를 불러오는 중...</p>
+        </div>
+      </div>
+    );
+  }
+
+  if (error) {
+    return (
+      <div className="flex items-center justify-center h-64">
+        <div className="text-center">
+          <p className="text-destructive text-lg mb-2">오류 발생</p>
+          <p className="text-muted-foreground">{error}</p>
+        </div>
+      </div>
+    );
+  }
 
   return (
     <div className="space-y-6">
@@ -115,45 +153,53 @@ const PaymentContent = () => {
               </tr>
             </thead>
             <tbody>
-              {filteredTransactions.map((transaction, index) => (
-                <tr
-                  key={transaction.id}
-                  className={cn(
-                    "border-t border-border transition-colors hover:bg-muted/30",
-                    transaction.status === "REVIEW" && "bg-warning/5",
-                    transaction.status === "ERROR" && "bg-destructive/5"
-                  )}
-                  style={{ animationDelay: `${index * 50}ms` }}
-                >
-                  <td className="px-6 py-4 text-sm font-mono text-foreground">{transaction.id}</td>
-                  <td className="px-6 py-4 text-sm text-muted-foreground">Device {transaction.device}</td>
-                  <td className="px-6 py-4 text-sm text-muted-foreground">{transaction.customer}</td>
-                  <td className="px-6 py-4 text-sm text-foreground">{transaction.product}</td>
-                  <td className="px-6 py-4 text-sm font-semibold text-primary">{transaction.amount}</td>
-                  <td className="px-6 py-4 text-sm text-muted-foreground">{transaction.time}</td>
-                  <td className="px-6 py-4">
-                    <span className={cn(
-                      "inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full text-xs font-medium",
-                      getStatusBadge(transaction.status)
-                    )}>
-                      {getStatusIcon(transaction.status)}
-                      {transaction.status}
-                    </span>
-                  </td>
-                  <td className="px-6 py-4">
-                    {transaction.status === "REVIEW" && (
-                      <button className="px-3 py-1.5 bg-primary/20 text-primary rounded-lg text-xs font-medium hover:bg-primary/30 transition-colors">
-                        승인
-                      </button>
-                    )}
-                    {transaction.status === "ERROR" && (
-                      <button className="px-3 py-1.5 bg-destructive/20 text-destructive rounded-lg text-xs font-medium hover:bg-destructive/30 transition-colors">
-                        재시도
-                      </button>
-                    )}
+              {filteredTransactions.length === 0 ? (
+                <tr>
+                  <td colSpan={8} className="px-6 py-12 text-center text-muted-foreground">
+                    거래 내역이 없습니다
                   </td>
                 </tr>
-              ))}
+              ) : (
+                filteredTransactions.map((transaction, index) => (
+                  <tr
+                    key={transaction.id}
+                    className={cn(
+                      "border-t border-border transition-colors hover:bg-muted/30",
+                      transaction.status === "REVIEW" && "bg-warning/5",
+                      transaction.status === "ERROR" && "bg-destructive/5"
+                    )}
+                    style={{ animationDelay: `${index * 50}ms` }}
+                  >
+                    <td className="px-6 py-4 text-sm font-mono text-foreground">{transaction.id}</td>
+                    <td className="px-6 py-4 text-sm text-muted-foreground">{transaction.device}</td>
+                    <td className="px-6 py-4 text-sm text-muted-foreground">{transaction.customer || "-"}</td>
+                    <td className="px-6 py-4 text-sm text-foreground">{transaction.product}</td>
+                    <td className="px-6 py-4 text-sm font-semibold text-primary">{transaction.amount}</td>
+                    <td className="px-6 py-4 text-sm text-muted-foreground">{transaction.time}</td>
+                    <td className="px-6 py-4">
+                      <span className={cn(
+                        "inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full text-xs font-medium",
+                        getStatusBadge(transaction.status)
+                      )}>
+                        {getStatusIcon(transaction.status)}
+                        {transaction.status}
+                      </span>
+                    </td>
+                    <td className="px-6 py-4">
+                      {transaction.status === "REVIEW" && (
+                        <button className="px-3 py-1.5 bg-primary/20 text-primary rounded-lg text-xs font-medium hover:bg-primary/30 transition-colors">
+                          승인
+                        </button>
+                      )}
+                      {transaction.status === "ERROR" && (
+                        <button className="px-3 py-1.5 bg-destructive/20 text-destructive rounded-lg text-xs font-medium hover:bg-destructive/30 transition-colors">
+                          재시도
+                        </button>
+                      )}
+                    </td>
+                  </tr>
+                ))
+              )}
             </tbody>
           </table>
         </div>

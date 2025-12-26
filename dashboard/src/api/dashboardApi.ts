@@ -1,122 +1,161 @@
 // ============================================
-// Dashboard API - Functions to fetch dashboard data
-// Replace mock implementations with real FastAPI calls
+// 대시보드 API - central-api 연결
 // ============================================
 
 import type {
   KPIData,
-  Transaction,
   TableData,
   AlertSummary,
+  AlertSeverity,
   HourlyRevenuePoint,
   ProductSalesData,
   DashboardSummary,
+  OrderHdrOut,
+  ReviewOut,
 } from "./types";
+import { apiFetch, DEFAULT_STORE_CODE } from "./config";
+import { orderToTransaction } from "./paymentApi";
 
-import {
-  mockKPIs,
-  mockTransactionsShort,
-  mockTables,
-  mockAlertsSummary,
-  mockHourlyRevenue,
-  mockProductSales,
-} from "./mockData";
+// Top Menu API 응답 타입 (dashboardApi 전용)
+interface TopMenuRow {
+  item_id: number;
+  name: string;
+  qty: number;
+  amount_won: number;
+}
 
-// API Base URL - Change this when connecting to FastAPI
-const API_BASE_URL = "/api";
+// KPI API 응답 타입
+interface KPIOut {
+  icon: string;
+  title: string;
+  value: string;
+  subtitle: string;
+  trend: "up" | "down" | "neutral";
+  variant: "revenue" | "customers" | "occupancy" | "alerts";
+}
 
-// Simulated network delay for development
-const simulateDelay = (ms: number = 100) => 
-  new Promise(resolve => setTimeout(resolve, ms));
-
-/**
- * Fetch KPI data for the dashboard
- */
-export async function fetchKPIs(): Promise<KPIData[]> {
-  // TODO: Replace with real API call
-  // const response = await fetch(`${API_BASE_URL}/dashboard/kpis`);
-  // return response.json();
-  
-  await simulateDelay();
-  return mockKPIs;
+// Table API 응답 타입
+interface TableOut {
+  id: number;
+  status: "occupied" | "cleaning" | "abnormal" | "vacant";
+  customers: number | null;
+  occupancy_time: string | null;
+  order_amount: string | null;
 }
 
 /**
- * Fetch recent transactions for the dashboard
+ * KPI 데이터 조회 (kpis API 연결)
  */
-export async function fetchRecentTransactions(): Promise<Transaction[]> {
-  // TODO: Replace with real API call
-  // const response = await fetch(`${API_BASE_URL}/transactions/recent`);
-  // return response.json();
-  
-  await simulateDelay();
-  return mockTransactionsShort;
+export async function fetchKPIs(storeCode: string = DEFAULT_STORE_CODE): Promise<KPIData[]> {
+  const params = new URLSearchParams({ store_code: storeCode });
+  const kpis = await apiFetch<KPIOut[]>(`/dashboards/kpis?${params}`);
+  return kpis;
 }
 
 /**
- * Fetch table floor plan data
+ * 최근 트랜잭션 조회 (orders API 연결)
  */
-export async function fetchTables(): Promise<TableData[]> {
-  // TODO: Replace with real API call
-  // const response = await fetch(`${API_BASE_URL}/tables`);
-  // return response.json();
-  
-  await simulateDelay();
-  return mockTables;
+export async function fetchRecentTransactions() {
+  const orders = await apiFetch<OrderHdrOut[]>("/orders");
+  // 최근 5개만 반환
+  return orders.slice(0, 5).map(orderToTransaction);
 }
 
 /**
- * Fetch alerts summary for the dashboard
+ * 테이블 배치도 조회 (tables API 연결)
+ */
+export async function fetchTables(storeCode: string = DEFAULT_STORE_CODE): Promise<TableData[]> {
+  const params = new URLSearchParams({ store_code: storeCode });
+  const tables = await apiFetch<TableOut[]>(`/dashboards/tables?${params}`);
+
+  return tables.map(table => ({
+    id: table.id,
+    status: table.status,
+    customers: table.customers ?? undefined,
+    occupancyTime: table.occupancy_time ?? undefined,
+    orderAmount: table.order_amount ?? undefined,
+  }));
+}
+
+/**
+ * 알림 요약 조회 (reviews API 연결)
  */
 export async function fetchAlertsSummary(): Promise<AlertSummary[]> {
-  // TODO: Replace with real API call
-  // const response = await fetch(`${API_BASE_URL}/alerts/summary`);
-  // return response.json();
-  
-  await simulateDelay();
-  return mockAlertsSummary;
+  const reviews = await apiFetch<ReviewOut[]>("/reviews?status=OPEN");
+
+  return reviews.slice(0, 5).map(review => {
+    let severity: AlertSeverity = "normal";
+    if (review.reason === "REVIEW") severity = "critical";
+    else if (review.reason === "UNKNOWN") severity = "warning";
+
+    return {
+      id: review.review_id,
+      severity,
+      type: review.reason,
+      message: `세션 ${review.session_id} 검토 필요`,
+      timestamp: new Date(review.created_at).toLocaleString("ko-KR"),
+    };
+  });
 }
 
 /**
- * Fetch hourly revenue data
+ * 시간대별 매출 조회 (hourly-revenue API 연결)
  */
-export async function fetchHourlyRevenue(): Promise<HourlyRevenuePoint[]> {
-  // TODO: Replace with real API call
-  // const response = await fetch(`${API_BASE_URL}/analytics/hourly-revenue`);
-  // return response.json();
-  
-  await simulateDelay();
-  return mockHourlyRevenue;
+export async function fetchHourlyRevenue(storeCode: string = DEFAULT_STORE_CODE): Promise<HourlyRevenuePoint[]> {
+  const params = new URLSearchParams({ store_code: storeCode });
+  const data = await apiFetch<HourlyRevenuePoint[]>(`/dashboards/hourly-revenue?${params}`);
+  return data;
 }
 
 /**
- * Fetch product sales data
+ * 상품별 매출 조회 (top-menu API 연결)
  */
-export async function fetchProductSales(): Promise<ProductSalesData[]> {
-  // TODO: Replace with real API call
-  // const response = await fetch(`${API_BASE_URL}/analytics/product-sales`);
-  // return response.json();
-  
-  await simulateDelay();
-  return mockProductSales;
+export async function fetchProductSales(storeCode: string = DEFAULT_STORE_CODE): Promise<ProductSalesData[]> {
+  // 오늘 날짜 기준으로 조회
+  const now = new Date();
+  const from = new Date(now.getFullYear(), now.getMonth(), now.getDate()).toISOString();
+  const to = new Date(now.getFullYear(), now.getMonth(), now.getDate() + 1).toISOString();
+
+  const params = new URLSearchParams({
+    store_code: storeCode,
+    from_: from,
+    to: to,
+    limit: "10",
+  });
+
+  const topMenu = await apiFetch<TopMenuRow[]>(`/dashboards/top-menu?${params}`);
+
+  // 전체 수량 계산
+  const totalQty = topMenu.reduce((sum, item) => sum + item.qty, 0);
+
+  return topMenu.map(item => ({
+    name: item.name,
+    nameEn: item.name, // 영문명이 없으므로 동일하게 사용
+    value: item.qty,
+    percentage: totalQty > 0 ? Math.round((item.qty / totalQty) * 100) : 0,
+  }));
 }
 
 /**
- * Fetch all dashboard data in a single request
- * More efficient for initial load
+ * 대시보드 전체 데이터 조회
  */
 export async function fetchDashboardSummary(): Promise<DashboardSummary> {
-  // TODO: Replace with real API call
-  // const response = await fetch(`${API_BASE_URL}/dashboard/summary`);
-  // return response.json();
-  
-  await simulateDelay();
+  // 병렬로 모든 데이터 조회
+  const [kpis, tables, transactions, alerts, hourlyRevenue, productSales] = await Promise.all([
+    fetchKPIs(),
+    fetchTables(),
+    fetchRecentTransactions(),
+    fetchAlertsSummary(),
+    fetchHourlyRevenue(),
+    fetchProductSales(),
+  ]);
+
   return {
-    kpis: mockKPIs,
-    tables: mockTables,
-    transactions: mockTransactionsShort,
-    alerts: mockAlertsSummary,
-    hourlyRevenue: mockHourlyRevenue,
-    productSales: mockProductSales,
+    kpis,
+    tables,
+    transactions,
+    alerts,
+    hourlyRevenue,
+    productSales,
   };
 }
