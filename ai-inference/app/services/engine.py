@@ -85,17 +85,24 @@ class InferenceEngine:
                         {
                             "instance_id": 1,
                             "confidence": 0.92,
-                            "bbox": [120, 80, 260, 210],   # [x1,y1,x2,y2]
-                            "label_text": "Plain Bagel",
-                            "top_k": [
-                                {"item_id": 101, "distance": 0.1423},
-                                {"item_id": 109, "distance": 0.1504},
-                            ],
-                            "best_item_id": 101,
+                            "mask_area": 12345,
+                            "top_k": [{"item_id": 1, "distance": 0.1423}, {"item_id": 2, "distance": 0.1504}],
+                            "best_item_id": 1,
                             "match_distance": 0.1423,
                             "match_margin": 0.0081,
                             "state": "REVIEW",
-                            "qty": 1,
+                            "qty": 1
+                        },
+                        {
+                            "instance_id": 2,
+                            "confidence": 0.95,
+                            "mask_area": 11002,
+                            "top_k": [{"item_id": 3, "distance": 0.0901}, {"item_id": 4, "distance": 0.1312}],
+                            "best_item_id": 3,
+                            "match_distance": 0.0901,
+                            "match_margin": 0.0411,
+                            "state": "AUTO",
+                            "qty": 1
                         }
                     ],
                     "items": [{"item_id": 101, "qty": 1}],

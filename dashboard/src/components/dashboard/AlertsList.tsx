@@ -1,7 +1,6 @@
 import { cn } from "@/lib/utils";
 import { Badge } from "@/components/ui/badge";
 import type { AlertSummary, AlertSeverity } from "@/api/types";
-import { mockAlertsSummary } from "@/api/mockData";
 
 const severityConfig: Record<AlertSeverity, {
   icon: string;
@@ -33,7 +32,7 @@ interface AlertsListProps {
   alerts?: AlertSummary[];
 }
 
-const AlertsList = ({ alerts = mockAlertsSummary }: AlertsListProps) => {
+const AlertsList = ({ alerts = [] }: AlertsListProps) => {
   const criticalCount = alerts.filter(a => a.severity === "critical").length;
   const warningCount = alerts.filter(a => a.severity === "warning").length;
 
@@ -59,46 +58,54 @@ const AlertsList = ({ alerts = mockAlertsSummary }: AlertsListProps) => {
         </div>
       </div>
 
-      {/* Alert List */}
-      <div className="flex-1 overflow-auto scrollbar-thin space-y-3">
-        {alerts.map((alert, index) => {
-          const config = severityConfig[alert.severity];
-          return (
-            <div
-              key={alert.id}
-              className={cn(
-                "p-4 rounded-xl border-l-4 transition-all duration-200 hover:translate-x-1 cursor-pointer",
-                config.bg
-              )}
-              style={{ animationDelay: `${index * 100}ms` }}
-            >
-              <div className="flex items-start gap-3">
-                <span className="text-xl">{config.icon}</span>
-                <div className="flex-1 min-w-0">
-                  <div className="flex items-center gap-2 mb-1">
-                    <Badge variant="outline" className={cn("text-xs", config.badge)}>
-                      {config.label}
-                    </Badge>
-                    <Badge variant="outline" className="text-xs bg-muted/50 text-muted-foreground border-border">
-                      {alert.type}
-                    </Badge>
-                  </div>
-                  <p className="text-sm text-foreground">{alert.message}</p>
-                </div>
-                <span className="text-xs text-muted-foreground whitespace-nowrap">{alert.timestamp}</span>
-              </div>
-            </div>
-          );
-        })}
-      </div>
-
-      {/* Summary */}
-      <div className="mt-4 pt-4 border-t border-border">
-        <div className="flex justify-between text-sm">
-          <span className="text-muted-foreground">오늘 총 알림</span>
-          <span className="text-foreground font-medium">{alerts.length}건</span>
+      {alerts.length === 0 ? (
+        <div className="flex-1 flex items-center justify-center text-muted-foreground">
+          알림이 없습니다
         </div>
-      </div>
+      ) : (
+        <>
+          {/* Alert List */}
+          <div className="flex-1 overflow-auto scrollbar-thin space-y-3">
+            {alerts.map((alert, index) => {
+              const config = severityConfig[alert.severity];
+              return (
+                <div
+                  key={alert.id}
+                  className={cn(
+                    "p-4 rounded-xl border-l-4 transition-all duration-200 hover:translate-x-1 cursor-pointer",
+                    config.bg
+                  )}
+                  style={{ animationDelay: `${index * 100}ms` }}
+                >
+                  <div className="flex items-start gap-3">
+                    <span className="text-xl">{config.icon}</span>
+                    <div className="flex-1 min-w-0">
+                      <div className="flex items-center gap-2 mb-1">
+                        <Badge variant="outline" className={cn("text-xs", config.badge)}>
+                          {config.label}
+                        </Badge>
+                        <Badge variant="outline" className="text-xs bg-muted/50 text-muted-foreground border-border">
+                          {alert.type}
+                        </Badge>
+                      </div>
+                      <p className="text-sm text-foreground">{alert.message}</p>
+                    </div>
+                    <span className="text-xs text-muted-foreground whitespace-nowrap">{alert.timestamp}</span>
+                  </div>
+                </div>
+              );
+            })}
+          </div>
+
+          {/* Summary */}
+          <div className="mt-4 pt-4 border-t border-border">
+            <div className="flex justify-between text-sm">
+              <span className="text-muted-foreground">오늘 총 알림</span>
+              <span className="text-foreground font-medium">{alerts.length}건</span>
+            </div>
+          </div>
+        </>
+      )}
     </div>
   );
 };

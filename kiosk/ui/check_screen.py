@@ -2,19 +2,35 @@ from PyQt6.QtWidgets import (QApplication, QWidget, QVBoxLayout, QHBoxLayout, QP
 from PyQt6.QtCore import Qt
 
 class CheckScreen(QWidget):
-    def __init__(self, switch_callback):
+    def __init__(self, switch_callback, data):
         super().__init__()
         self.switch_callback = switch_callback
+        self.data = data
         self.init_ui()
     
     def init_ui(self):
-        layout = QVBoxLayout()
+        self.main_layout = QVBoxLayout()
+        self.main_layout.setContentsMargins(0, 0, 0, 0)
+        self.main_layout.setSpacing(0)
 
-        self.total_qty_value_contents = "100"
-        self.total_amount_value_contents = "10,000"
+        self.setLayout(self.main_layout)
+        self.refresh()
 
-        layout.setContentsMargins(0, 0, 0, 0)
-        layout.setSpacing(0)
+    def refresh(self):
+        """장바구니 데이터로 UI 갱신"""
+        # 기존 위젯 제거
+        while self.main_layout.count():
+            item = self.main_layout.takeAt(0)
+            if item.widget():
+                item.widget().deleteLater()
+            elif item.layout():
+                self._clear_layout(item.layout())
+
+        layout = self.main_layout
+
+        # 장바구니 데이터에서 총 수량, 총액 계산
+        total_qty = sum(item["qty"] for item in self.data.items) if self.data.items else 0
+        total_amount = self.data.get_total_amount() if self.data.items else 0
         
         # status bar 영역
         status_bar = QLabel("주문 내역 확인")
@@ -82,19 +98,37 @@ class CheckScreen(QWidget):
         self.scroll_layout.setSpacing(7)
         self.scroll_layout.setAlignment(Qt.AlignmentFlag.AlignHCenter)
         
-        # 임시 아이템 리스트
-        for i in range(10):
-            item = QLabel(f"아이템 {i+1}")
-            item.setFixedSize(955, 170)
-            item.setStyleSheet("""
+        # 장바구니 아이템 리스트
+        for cart_item in self.data.items:
+            item_name = cart_item.get("name", "알 수 없음")
+            item_qty = cart_item.get("qty", 1)
+            item_price = cart_item.get("unit_price", 0)
+
+            item_container = QWidget()
+            item_container.setFixedSize(955, 100)
+            item_container.setStyleSheet("""
                 background-color: rgba(250, 243, 225, 0.7);
-                border-radius: 3px;
-                font-size: 16px;
-                padding: 7px;
+                border-radius: 10px;
             """)
-            item.setAlignment(Qt.AlignmentFlag.AlignLeft | Qt.AlignmentFlag.AlignVCenter)
+
+            item_layout = QHBoxLayout(item_container)
+            item_layout.setContentsMargins(30, 15, 30, 15)
+
+            # 이름 (왼쪽)
+            name_label = QLabel(item_name)
+            name_label.setStyleSheet("font-size: 36px; background: transparent;")
+            name_label.setAlignment(Qt.AlignmentFlag.AlignLeft | Qt.AlignmentFlag.AlignVCenter)
+
+            # 단가 x 개수 (오른쪽)
+            price_label = QLabel(f"{item_price:,}원 x {item_qty}")
+            price_label.setStyleSheet("font-size: 36px; background: transparent;")
+            price_label.setAlignment(Qt.AlignmentFlag.AlignRight | Qt.AlignmentFlag.AlignVCenter)
+
+            item_layout.addWidget(name_label)
+            item_layout.addWidget(price_label)
+
             self.scroll_layout.addSpacing(10)
-            self.scroll_layout.addWidget(item)
+            self.scroll_layout.addWidget(item_container)
         
         self.scroll_layout.addStretch()
         scroll_area.setWidget(self.scroll_content)
@@ -130,25 +164,24 @@ class CheckScreen(QWidget):
 
         label_layout.addLayout(left_layout, 1)
 
-        self.total_qty_value_contents = "100"
         right_layout = QVBoxLayout()
         right_layout.setSpacing(100)
 
-        total_qty_value = QLabel(self.total_qty_value_contents)
-        total_qty_value.setStyleSheet("""
+        total_qty_value_label = QLabel(f"{total_qty}개")
+        total_qty_value_label.setStyleSheet("""
             color: #222222;
             font-size: 30pt;
         """)
-        total_qty_value.setAlignment(Qt.AlignmentFlag.AlignRight)
-        right_layout.addWidget(total_qty_value)
+        total_qty_value_label.setAlignment(Qt.AlignmentFlag.AlignRight)
+        right_layout.addWidget(total_qty_value_label)
 
-        total_amount_value = QLabel(self.total_amount_value_contents)
-        total_amount_value.setStyleSheet("""
+        total_amount_value_label = QLabel(f"{total_amount:,}원")
+        total_amount_value_label.setStyleSheet("""
             color: #222222;
             font-size: 30pt;
         """)
-        total_amount_value.setAlignment(Qt.AlignmentFlag.AlignRight)
-        right_layout.addWidget(total_amount_value)
+        total_amount_value_label.setAlignment(Qt.AlignmentFlag.AlignRight)
+        right_layout.addWidget(total_amount_value_label)
 
         label_layout.addLayout(right_layout, 1)
 
@@ -197,8 +230,15 @@ class CheckScreen(QWidget):
         layout.addStretch()
         layout.addSpacing(40)
         layout.addLayout(button_layout)
-        
-        self.setLayout(layout)
+
+    def _clear_layout(self, layout):
+        """레이아웃 내 모든 위젯 제거"""
+        while layout.count():
+            item = layout.takeAt(0)
+            if item.widget():
+                item.widget().deleteLater()
+            elif item.layout():
+                self._clear_layout(item.layout())
 
     def complete_payment(self):
         print("결제 완료!")
@@ -206,12 +246,21 @@ class CheckScreen(QWidget):
 
 if __name__ == '__main__':
     import sys
+    from model.cart_data import CartData
     app = QApplication(sys.argv)
-    
+
     def dummy_callback(screen):
         print(f"Callback called: {screen}")
-    
-    window = CheckScreen(dummy_callback)
+
+    # 테스트용 장바구니 데이터
+    dummy_data = CartData()
+    dummy_data.items = [
+        {"item_id": 1, "name": "아메리카노", "qty": 2, "unit_price": 4500},
+        {"item_id": 2, "name": "카페라떼", "qty": 1, "unit_price": 5000},
+        {"item_id": 3, "name": "치즈케이크", "qty": 1, "unit_price": 6500},
+    ]
+
+    window = CheckScreen(dummy_callback, dummy_data)
     window.show()
-    
+
     sys.exit(app.exec())

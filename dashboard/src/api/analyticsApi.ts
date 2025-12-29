@@ -1,6 +1,5 @@
 // ============================================
-// Analytics API - Functions to fetch analytics data
-// Replace mock implementations with real FastAPI calls
+// Analytics API - central-api 연결
 // ============================================
 
 import type {
@@ -9,105 +8,82 @@ import type {
   CategoryData,
   AnalyticsStat,
 } from "./types";
+import { apiFetch, DEFAULT_STORE_CODE } from "./config";
 
-import {
-  mockWeeklyData,
-  mockHourlyCustomers,
-  mockCategoryData,
-  mockAnalyticsStats,
-} from "./mockData";
-
-// API Base URL - Change this when connecting to FastAPI
-const API_BASE_URL = "/api";
-
-// Simulated network delay for development
-const simulateDelay = (ms: number = 100) => 
-  new Promise(resolve => setTimeout(resolve, ms));
-
-export interface AnalyticsDateRange {
-  startDate?: string;
-  endDate?: string;
+/**
+ * 주간 매출/고객 데이터 조회
+ */
+export async function fetchWeeklyData(
+  storeCode: string = DEFAULT_STORE_CODE
+): Promise<WeeklyDataPoint[]> {
+  const params = new URLSearchParams({ store_code: storeCode });
+  const data = await apiFetch<WeeklyDataPoint[]>(
+    `/dashboards/analytics/weekly?${params}`
+  );
+  return data;
 }
 
 /**
- * Fetch weekly revenue and customer data
+ * 시간대별 고객 수 조회
  */
-export async function fetchWeeklyData(range?: AnalyticsDateRange): Promise<WeeklyDataPoint[]> {
-  // TODO: Replace with real API call
-  // const params = new URLSearchParams();
-  // if (range?.startDate) params.append("start", range.startDate);
-  // if (range?.endDate) params.append("end", range.endDate);
-  // const response = await fetch(`${API_BASE_URL}/analytics/weekly?${params}`);
-  // return response.json();
-  
-  await simulateDelay();
-  return mockWeeklyData;
+export async function fetchHourlyCustomers(
+  storeCode: string = DEFAULT_STORE_CODE
+): Promise<HourlyDataPoint[]> {
+  const params = new URLSearchParams({ store_code: storeCode });
+  const data = await apiFetch<HourlyDataPoint[]>(
+    `/dashboards/analytics/hourly-customers?${params}`
+  );
+  return data;
 }
 
 /**
- * Fetch hourly customer flow data
+ * 카테고리별 판매 비율 조회
  */
-export async function fetchHourlyCustomers(date?: string): Promise<HourlyDataPoint[]> {
-  // TODO: Replace with real API call
-  // const params = date ? `?date=${date}` : "";
-  // const response = await fetch(`${API_BASE_URL}/analytics/hourly-customers${params}`);
-  // return response.json();
-  
-  await simulateDelay();
-  return mockHourlyCustomers;
+export async function fetchCategoryData(
+  storeCode: string = DEFAULT_STORE_CODE
+): Promise<CategoryData[]> {
+  const params = new URLSearchParams({ store_code: storeCode });
+  const data = await apiFetch<CategoryData[]>(
+    `/dashboards/analytics/categories?${params}`
+  );
+  return data;
 }
 
 /**
- * Fetch category distribution data
+ * 분석 통계 조회
  */
-export async function fetchCategoryData(range?: AnalyticsDateRange): Promise<CategoryData[]> {
-  // TODO: Replace with real API call
-  // const params = new URLSearchParams();
-  // if (range?.startDate) params.append("start", range.startDate);
-  // if (range?.endDate) params.append("end", range.endDate);
-  // const response = await fetch(`${API_BASE_URL}/analytics/categories?${params}`);
-  // return response.json();
-  
-  await simulateDelay();
-  return mockCategoryData;
+export async function fetchAnalyticsStats(
+  storeCode: string = DEFAULT_STORE_CODE
+): Promise<AnalyticsStat[]> {
+  const params = new URLSearchParams({ store_code: storeCode });
+  const data = await apiFetch<AnalyticsStat[]>(
+    `/dashboards/analytics/stats?${params}`
+  );
+  return data;
 }
 
 /**
- * Fetch analytics statistics
+ * 분석 전체 데이터 조회
  */
-export async function fetchAnalyticsStats(range?: AnalyticsDateRange): Promise<AnalyticsStat[]> {
-  // TODO: Replace with real API call
-  // const params = new URLSearchParams();
-  // if (range?.startDate) params.append("start", range.startDate);
-  // if (range?.endDate) params.append("end", range.endDate);
-  // const response = await fetch(`${API_BASE_URL}/analytics/stats?${params}`);
-  // return response.json();
-  
-  await simulateDelay();
-  return mockAnalyticsStats;
-}
-
-/**
- * Fetch all analytics data in a single request
- */
-export async function fetchAnalyticsSummary(range?: AnalyticsDateRange): Promise<{
+export async function fetchAnalyticsSummary(
+  storeCode: string = DEFAULT_STORE_CODE
+): Promise<{
   weeklyData: WeeklyDataPoint[];
   hourlyCustomers: HourlyDataPoint[];
   categoryData: CategoryData[];
   stats: AnalyticsStat[];
 }> {
-  // TODO: Replace with real API call
-  // const params = new URLSearchParams();
-  // if (range?.startDate) params.append("start", range.startDate);
-  // if (range?.endDate) params.append("end", range.endDate);
-  // const response = await fetch(`${API_BASE_URL}/analytics/summary?${params}`);
-  // return response.json();
-  
-  await simulateDelay();
+  const [weeklyData, hourlyCustomers, categoryData, stats] = await Promise.all([
+    fetchWeeklyData(storeCode),
+    fetchHourlyCustomers(storeCode),
+    fetchCategoryData(storeCode),
+    fetchAnalyticsStats(storeCode),
+  ]);
+
   return {
-    weeklyData: mockWeeklyData,
-    hourlyCustomers: mockHourlyCustomers,
-    categoryData: mockCategoryData,
-    stats: mockAnalyticsStats,
+    weeklyData,
+    hourlyCustomers,
+    categoryData,
+    stats,
   };
 }

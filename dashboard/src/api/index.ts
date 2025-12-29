@@ -11,6 +11,3 @@ export * from "./paymentApi";
 export * from "./storeApi";
 export * from "./alertsApi";
 export * from "./analyticsApi";
-
-// Mock Data (for reference/testing)
-export * from "./mockData";

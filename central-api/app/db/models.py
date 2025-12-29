@@ -91,8 +91,9 @@ class MenuItem(Base):
     __tablename__ = "menu_item"
 
     item_id = Column(Integer, primary_key=True, autoincrement=True)
-    name = Column(String(128), nullable=False)
-    category = Column(String(64))
+    name_eng = Column(String(128), nullable=False)
+    name_kor = Column(String(128), nullable=False)
+    category_id = Column(Integer, ForeignKey('category.category_id'))
     price_won = Column(Integer, nullable=False)
     weight_grams = Column(Integer)
     active = Column(Boolean, nullable=False)
@@ -101,9 +102,19 @@ class MenuItem(Base):
     prototypes = relationship("MenuItemPrototype", back_populates="menu_item")
     order_lines = relationship("OrderLine", back_populates="menu_item")
 
+    category = relationship("Category", back_populates="menu_items")
     __table_args__ = (
-        Index("ix_menu_item_active_category", "active", "category"),
+        Index("ix_menu_item_active_category_id", "active", "category_id"),
     )
+
+class Category(Base):
+    __tablename__ = 'category'
+    
+    category_id = Column(Integer, primary_key=True)
+    name = Column(String)
+    created_at = Column(DateTime, nullable=False)
+    
+    menu_items = relationship("MenuItem", back_populates="category")
 
 class PrototypeSet(Base):
     __tablename__ = "prototype_set"
