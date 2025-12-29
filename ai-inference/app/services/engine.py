@@ -32,7 +32,7 @@ class InferenceEngine:
         self.yolo = None
         self.embed_model = None
         self.embed_tf = None
-        self.device = "gpu"
+        self.device = "cpu"
 
     def startup_load(self) -> None:
         if self.mock:
@@ -48,6 +48,10 @@ class InferenceEngine:
         self.prototype_index = load_index(npy, meta)
 
         self._load_models()
+
+        D = int(self.prototype_index.vectors.shape[1])
+        if D != 2048:
+            raise ValueError(f"prototype dim mismatch: {D} (expected 2048)")
 
     def infer_tray(self, payload: dict[str, Any]) -> dict[str, Any]:
         """
