@@ -8,9 +8,14 @@ import { apiFetch } from "./config";
 /**
  * central-api Order -> dashboard Transaction 변환
  * dashboardApi에서도 재사용됨
+ * @param order - 주문 데이터
+ * @param separator - 여러 상품을 구분할 문자 (기본값: ", ")
  */
-export function orderToTransaction(order: OrderHdrOut): Transaction {
-  const productNames = order.lines.map(l => `Item #${l.item_id}`).join(", ");
+export function orderToTransaction(order: OrderHdrOut, separator: string = ", "): Transaction {
+  // 메뉴 아이템 이름 사용 (없으면 item_id 표시)
+  const productNames = order.lines
+    .map(l => l.item_name || `Item #${l.item_id}`)
+    .join(separator);
 
   // 주문 상태를 트랜잭션 상태로 매핑
   let status: TransactionStatus = "AUTO";
@@ -19,7 +24,7 @@ export function orderToTransaction(order: OrderHdrOut): Transaction {
 
   return {
     id: `ORD-${order.order_id}`,
-    device: `Store ${order.store_id}`,
+    device: order.store_name || `Store ${order.store_id}`,  // 매장명 사용 (없으면 store_id)
     product: productNames || "상품 없음",
     amount: `${order.total_amount_won.toLocaleString()}원`,
     status,
@@ -50,7 +55,8 @@ export async function fetchTransactions(filter?: TransactionFilter): Promise<Tra
   const queryString = params.toString() ? `?${params.toString()}` : "";
   const orders = await apiFetch<OrderHdrOut[]>(`/orders${queryString}`);
 
-  let result = orders.map(orderToTransaction);
+  // 결제관리 페이지에서는 쉼표로 구분
+  let result = orders.map(order => orderToTransaction(order, ", "));
 
   // 클라이언트 측 필터링 (상태, 검색어)
   if (filter?.status && filter.status !== "ALL") {
@@ -73,7 +79,7 @@ export async function fetchTransactions(filter?: TransactionFilter): Promise<Tra
  */
 export async function fetchTransactionStats(): Promise<TransactionStats> {
   const orders = await apiFetch<OrderHdrOut[]>("/orders");
-  const transactions = orders.map(orderToTransaction);
+  const transactions = orders.map(order => orderToTransaction(order, ", "));
 
   return {
     auto: transactions.filter(t => t.status === "AUTO").length,

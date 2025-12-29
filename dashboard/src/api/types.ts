@@ -10,6 +10,7 @@ export interface OrderLineOut {
   order_line_id: number;
   order_id: number;
   item_id: number;
+  item_name?: string | null;  // 메뉴 아이템 이름
   qty: number;
   unit_price_won: number;
   line_amount_won: number;
@@ -18,6 +19,7 @@ export interface OrderLineOut {
 export interface OrderHdrOut {
   order_id: number;
   store_id: number;
+  store_name?: string | null;  // 매장 이름
   session_id: number;
   total_amount_won: number;
   status: string; // PENDING, PAID, CANCELLED 등

@@ -47,8 +47,8 @@ export async function fetchKPIs(storeCode: string = DEFAULT_STORE_CODE): Promise
  */
 export async function fetchRecentTransactions() {
   const orders = await apiFetch<OrderHdrOut[]>("/orders");
-  // 최근 5개만 반환
-  return orders.slice(0, 5).map(orderToTransaction);
+  // 최근 5개만 반환, 대시보드에서는 줄바꿈으로 상품 구분
+  return orders.slice(0, 5).map(order => orderToTransaction(order, "\n"));
 }
 
 /**
