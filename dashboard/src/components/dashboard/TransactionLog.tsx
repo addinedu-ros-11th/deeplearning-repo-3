@@ -59,11 +59,11 @@ const TransactionLog = ({ transactions = [] }: TransactionLogProps) => {
             <table className="w-full">
               <thead className="sticky top-0 bg-card">
                 <tr className="text-xs text-muted-foreground border-b border-border">
-                  <th className="text-left py-3 px-2 font-medium">ID</th>
-                  <th className="text-left py-3 px-2 font-medium">기기</th>
-                  <th className="text-left py-3 px-2 font-medium">상품</th>
-                  <th className="text-right py-3 px-2 font-medium">금액</th>
-                  <th className="text-right py-3 px-2 font-medium">상태</th>
+                  <th className="text-left py-3 px-2 font-medium w-[15%]">ID</th>
+                  <th className="text-left py-3 px-2 font-medium w-[15%]">기기</th>
+                  <th className="text-left py-3 px-2 font-medium w-[35%]">상품</th>
+                  <th className="text-right py-3 px-2 font-medium w-[15%]">금액</th>
+                  <th className="text-right py-3 px-2 font-medium w-[20%]">상태</th>
                 </tr>
               </thead>
               <tbody>
@@ -78,19 +78,19 @@ const TransactionLog = ({ transactions = [] }: TransactionLogProps) => {
                       )}
                       style={{ animationDelay: `${index * 50}ms` }}
                     >
-                      <td className="py-3 px-2">
+                      <td className="py-3 px-2 w-[15%]">
                         <span className="text-sm font-mono text-muted-foreground">{tx.id}</span>
                       </td>
-                      <td className="py-3 px-2">
-                        <span className="text-sm text-foreground">#{tx.device}</span>
+                      <td className="py-3 px-2 w-[15%]">
+                        <span className="text-sm text-foreground">{tx.device}</span>
                       </td>
-                      <td className="py-3 px-2">
-                        <span className="text-sm text-foreground">{tx.product}</span>
+                      <td className="py-3 px-2 w-[35%]">
+                        <span className="text-sm text-foreground whitespace-pre-line">{tx.product}</span>
                       </td>
-                      <td className="py-3 px-2 text-right">
+                      <td className="py-3 px-2 text-right w-[15%]">
                         <span className="text-sm font-medium text-accent">{tx.amount}</span>
                       </td>
-                      <td className="py-3 px-2 text-right">
+                      <td className="py-3 px-2 text-right w-[20%]">
                         <Badge variant="outline" className={cn("text-xs", config.badge)}>
                           {tx.status}
                         </Badge>
