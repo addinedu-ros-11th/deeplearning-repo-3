@@ -215,12 +215,25 @@ def infer_tray(session_uuid: str, body: InferTrayRequest, db: Session = Depends(
                 .first()
             )
             if not open_review:
+                # instances에서 top_k 또는 items 추출
+                top_k_data = None
+                instances = result_json.get("instances", [])
+                if instances:
+                    # 각 instance의 best_item_id와 qty를 수집
+                    top_k_data = [
+                        {"item_id": inst.get("best_item_id"), "qty": inst.get("qty", 1)}
+                        for inst in instances
+                        if inst.get("best_item_id")
+                    ]
+                if not top_k_data:
+                    top_k_data = result_json.get("items") or result_json.get("top_k")
+
                 r = Review(
                     session_id=s.session_id,
                     run_id=run.run_id,
                     status=ReviewStatus.OPEN,
                     reason=decision,
-                    top_k_json=result_json.get("top_k"),
+                    top_k_json=top_k_data,
                     confirmed_items_json=None,
                     created_at=utcnow(),
                 )
@@ -266,12 +279,24 @@ def infer_tray(session_uuid: str, body: InferTrayRequest, db: Session = Depends(
             .first()
         )
         if not open_review:
+            # instances에서 top_k 또는 items 추출
+            top_k_data = None
+            instances = result_json.get("instances", [])
+            if instances:
+                top_k_data = [
+                    {"item_id": inst.get("best_item_id"), "qty": inst.get("qty", 1)}
+                    for inst in instances
+                    if inst.get("best_item_id")
+                ]
+            if not top_k_data:
+                top_k_data = result_json.get("items") or result_json.get("top_k")
+
             r = Review(
                 session_id=s.session_id,
                 run_id=run.run_id,
                 status=ReviewStatus.OPEN,
                 reason="REVIEW",
-                top_k_json=result_json.get("top_k"),
+                top_k_json=top_k_data,
                 confirmed_items_json=None,
                 created_at=utcnow(),
             )
