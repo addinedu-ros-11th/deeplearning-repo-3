@@ -17,6 +17,7 @@ class Settings(BaseSettings):
     # Model artifacts
     YOLO_MODEL_PATH: str | None = None          # 예: /opt/models/yolo8s-seg.pt
     YOLO_MODEL_GCS_URI: str | None = None
+    YOLO_SEG_MODEL_PATH: str | None = None
     EMBED_MODEL_NAME: str = "resnet50"          # 일단 고정
     EMBED_DEVICE: str = "cuda"                  # cuda 또는 cpu
 
