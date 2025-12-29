@@ -13,6 +13,12 @@ from app.core.config import settings
 from app.services.prototype_index import PrototypeIndex, load_index
 from app.services.central_client import CentralClient
 
+import cv2
+import torch
+import torch.nn as nn
+from torchvision import models, transforms
+from torchvision.models import ResNet50_Weights
+from ultralytics import YOLO
 
 def _ensure_dir(path: str) -> None:
     os.makedirs(path, exist_ok=True)
@@ -22,6 +28,11 @@ class InferenceEngine:
     def __init__(self) -> None:
         self.mock = bool(settings.AI_MOCK_MODE)
         self.prototype_index: PrototypeIndex | None = None
+
+        self.yolo = None
+        self.embed_model = None
+        self.embed_tf = None
+        self.device = "gpu"
 
     def startup_load(self) -> None:
         if self.mock:
@@ -35,6 +46,8 @@ class InferenceEngine:
         npy = settings.PROTOTYPE_INDEX_PATH
         meta = npy.replace(".npy", ".json")
         self.prototype_index = load_index(npy, meta)
+
+        self._load_models()
 
     def infer_tray(self, payload: dict[str, Any]) -> dict[str, Any]:
         """
@@ -226,3 +239,29 @@ class InferenceEngine:
             )
         except Exception:
             pass
+
+    def _load_models(self) -> None:
+        # device
+        self.device = getattr(settings, "AI_DEVICE", "cpu")  # 없으면 cpu
+
+        # YOLO seg
+        yolo_path = getattr(settings, "YOLO_SEG_MODEL_PATH", None)
+        if not yolo_path:
+            raise ValueError("YOLO_SEG_MODEL_PATH is required for real inference")
+        self.yolo = YOLO(yolo_path)
+
+        # ResNet50 embedder
+        w = ResNet50_Weights.IMAGENET1K_V2
+        m = models.resnet50(weights=w)
+        m.fc = nn.Identity()
+        m.eval()
+        m.to(self.device)
+        self.embed_model = m
+
+        self.embed_tf = transforms.Compose([
+            transforms.Resize((224, 224)),
+            transforms.ToTensor(),
+            transforms.Normalize(mean=(0.485, 0.456, 0.406),
+                                std=(0.229, 0.224, 0.225)),
+        ])
+
