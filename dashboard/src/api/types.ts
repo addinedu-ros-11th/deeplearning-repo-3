@@ -40,6 +40,33 @@ export interface ReviewOut {
   resolved_by: string | null;
 }
 
+// CCTV Event Types
+export type CctvEventType = "VANDALISM" | "VIOLENCE" | "FALL" | "WHEELCHAIR";
+export type CctvEventStatus = "OPEN" | "CONFIRMED" | "DISMISSED";
+
+export interface CctvEventClipOut {
+  clip_id: number;
+  event_id: number;
+  clip_gcs_uri: string;
+  clip_start_at: string;
+  clip_end_at: string;
+  created_at: string;
+}
+
+export interface CctvEventOut {
+  event_id: number;
+  store_id: number;
+  cctv_device_id: number;
+  event_type: CctvEventType;
+  confidence: number;
+  status: CctvEventStatus;
+  started_at: string;
+  ended_at: string;
+  meta_json: unknown | null;
+  created_at: string;
+  clips: CctvEventClipOut[];
+}
+
 // ============================================
 // Client Types (클라이언트 타입)
 // ============================================
@@ -81,6 +108,10 @@ export interface Alert {
   isRead: boolean;
   review_id?: number;  // 리뷰 ID (확정 처리에 필요)
   top_k_json?: any;    // AI 인식 결과 (확정 처리에 필요)
+  // CCTV 이벤트 관련 필드
+  event_id?: number;   // CCTV 이벤트 ID
+  clip_url?: string;   // 영상 클립 URL (GCS URI)
+  event_type?: CctvEventType;  // CCTV 이벤트 타입
 }
 
 export interface AlertSummary {

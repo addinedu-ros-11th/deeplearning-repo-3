@@ -1,5 +1,5 @@
 import { useState, useEffect, useMemo } from "react";
-import { Bell, AlertTriangle, CheckCircle, XCircle, Filter, Clock } from "lucide-react";
+import { Bell, AlertTriangle, CheckCircle, XCircle, Filter, Clock, Video, X } from "lucide-react";
 import { cn } from "@/lib/utils";
 import type { Alert, AlertSeverity, AlertCategory } from "@/api/types";
 import { fetchAlerts, confirmReview } from "@/api/alertsApi";
@@ -10,6 +10,7 @@ const AlertsContent = () => {
   const [alerts, setAlerts] = useState<Alert[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
+  const [selectedVideo, setSelectedVideo] = useState<string | null>(null); // 영상 모달용
 
   useEffect(() => {
     const loadData = async () => {
@@ -228,6 +229,16 @@ const AlertsContent = () => {
               </div>
 
               <div className="flex items-center gap-2">
+                {/* 영상 버튼 - 긴급/주의 알림 중 clip_url이 있는 경우만 표시 */}
+                {(alert.type === "critical" || alert.type === "warning") && alert.clip_url && (
+                  <button
+                    onClick={() => setSelectedVideo(alert.clip_url!)}
+                    className="px-3 py-1.5 bg-primary/20 text-primary rounded-lg text-sm font-medium hover:bg-primary/30 transition-colors flex items-center gap-1"
+                  >
+                    <Video className="w-4 h-4" />
+                    영상
+                  </button>
+                )}
                 {alert.type === "critical" && (
                   <button
                     onClick={() => handleConfirm(alert)}
@@ -249,6 +260,43 @@ const AlertsContent = () => {
           </div>
         ))}
       </div>
+
+      {/* 영상 모달 */}
+      {selectedVideo && (
+        <div
+          className="fixed inset-0 bg-black/70 flex items-center justify-center z-50"
+          onClick={() => setSelectedVideo(null)}
+        >
+          <div
+            className="bg-card rounded-2xl p-4 max-w-4xl w-full mx-4 relative"
+            onClick={(e) => e.stopPropagation()}
+          >
+            <button
+              onClick={() => setSelectedVideo(null)}
+              className="absolute top-4 right-4 p-2 bg-muted rounded-full hover:bg-muted/80 transition-colors"
+            >
+              <X className="w-5 h-5" />
+            </button>
+            <h3 className="text-lg font-semibold mb-4 flex items-center gap-2">
+              <Video className="w-5 h-5 text-primary" />
+              CCTV 영상
+            </h3>
+            <div className="aspect-video bg-black rounded-lg overflow-hidden">
+              <video
+                src={selectedVideo}
+                controls
+                autoPlay
+                className="w-full h-full object-contain"
+              >
+                브라우저가 비디오를 지원하지 않습니다.
+              </video>
+            </div>
+            <p className="text-sm text-muted-foreground mt-2 break-all">
+              {selectedVideo}
+            </p>
+          </div>
+        </div>
+      )}
     </div>
   );
 };

@@ -1,8 +1,8 @@
 // ============================================
-// 알림 API - central-api /reviews 엔드포인트 연결
+// 알림 API - central-api /reviews + /cctv/events 엔드포인트 연결
 // ============================================
 
-import type { Alert, AlertSeverity, AlertCategory, ReviewOut } from "./types";
+import type { Alert, AlertSeverity, AlertCategory, ReviewOut, CctvEventOut, CctvEventType } from "./types";
 import { apiFetch } from "./config";
 
 // central-api Review -> dashboard Alert 변환
@@ -38,6 +38,69 @@ function reviewToAlert(review: ReviewOut): Alert {
   };
 }
 
+// CCTV 이벤트 타입 -> 심각도 매핑
+function getEventSeverity(eventType: CctvEventType): AlertSeverity {
+  switch (eventType) {
+    case "VIOLENCE":
+    case "VANDALISM":
+      return "critical";
+    case "FALL":
+      return "warning";
+    case "WHEELCHAIR":
+      return "normal";
+    default:
+      return "warning";
+  }
+}
+
+// CCTV 이벤트 타입 -> 한글 메시지
+function getEventMessage(eventType: CctvEventType): string {
+  switch (eventType) {
+    case "VIOLENCE":
+      return "폭력 행위 감지";
+    case "VANDALISM":
+      return "기물 파손 감지";
+    case "FALL":
+      return "낙상 감지";
+    case "WHEELCHAIR":
+      return "휠체어 이용자 감지";
+    default:
+      return "CCTV 이벤트 감지";
+  }
+}
+
+// gs://bucket/path → https://storage.googleapis.com/bucket/path
+function gcsToPublicUrl(gcsUri: string): string {
+  if (gcsUri.startsWith("gs://")) {
+    return gcsUri.replace("gs://", "https://storage.googleapis.com/");
+  }
+  return gcsUri;
+}
+
+// central-api CctvEvent -> dashboard Alert 변환
+function cctvEventToAlert(event: CctvEventOut): Alert {
+  const type = getEventSeverity(event.event_type);
+  const message = getEventMessage(event.event_type);
+
+  // 첫 번째 클립의 GCS URI를 공개 URL로 변환
+  const clipUrl = event.clips.length > 0
+    ? gcsToPublicUrl(event.clips[0].clip_gcs_uri)
+    : undefined;
+
+  return {
+    id: `CCTV-${event.event_id}`,
+    type,
+    category: event.event_type === "VANDALISM" ? "security" : "safety",
+    message,
+    location: `CCTV Device #${event.cctv_device_id}`,
+    timestamp: new Date(event.created_at).toLocaleString("ko-KR"),
+    isRead: event.status !== "OPEN",
+    event_id: event.event_id,
+    clip_url: clipUrl,
+    event_type: event.event_type,
+  };
+}
+
 export interface AlertFilter {
   type?: AlertSeverity | "all";
   category?: AlertCategory | "all";
@@ -54,13 +117,36 @@ export interface AlertStats {
 
 /**
  * 알림 목록 조회 (필터 적용)
+ * Review + CCTV 이벤트를 통합하여 반환
  */
 export async function fetchAlerts(filter?: AlertFilter): Promise<Alert[]> {
   // 기본적으로 OPEN 상태 조회
   const status = filter?.status || "OPEN";
-  const reviews = await apiFetch<ReviewOut[]>(`/reviews?status=${status}`);
 
-  let result = reviews.map(reviewToAlert);
+  // Review와 CCTV 이벤트를 병렬로 조회
+  const [reviews, cctvEvents] = await Promise.all([
+    apiFetch<ReviewOut[]>(`/reviews?status=${status}`),
+    apiFetch<CctvEventOut[]>(`/cctv/events`).catch((err) => {
+      console.error("CCTV API error:", err);
+      return [] as CctvEventOut[];
+    }),
+  ]);
+
+  console.log("CCTV Events:", cctvEvents);
+  console.log("CCTV clips:", cctvEvents.map(e => e.clips));
+
+  // 각각 Alert로 변환
+  const reviewAlerts = reviews.map(reviewToAlert);
+  const cctvAlerts = cctvEvents
+    .filter(e => status === "OPEN" ? e.status === "OPEN" : e.status !== "OPEN")
+    .map(cctvEventToAlert);
+
+  console.log("CCTV Alerts:", cctvAlerts);
+
+  // 합치고 시간순 정렬 (최신 먼저)
+  let result = [...reviewAlerts, ...cctvAlerts].sort((a, b) => {
+    return new Date(b.timestamp).getTime() - new Date(a.timestamp).getTime();
+  });
 
   // 클라이언트 측 필터링
   if (filter?.type && filter.type !== "all") {
@@ -78,9 +164,18 @@ export async function fetchAlerts(filter?: AlertFilter): Promise<Alert[]> {
  * 알림 통계 조회
  */
 export async function fetchAlertStats(): Promise<AlertStats> {
-  // OPEN 상태 리뷰만 조회
-  const reviews = await apiFetch<ReviewOut[]>("/reviews?status=OPEN");
-  const alerts = reviews.map(reviewToAlert);
+  // OPEN 상태 리뷰 + CCTV 이벤트 조회
+  const [reviews, cctvEvents] = await Promise.all([
+    apiFetch<ReviewOut[]>("/reviews?status=OPEN"),
+    apiFetch<CctvEventOut[]>("/cctv/events").catch(() => [] as CctvEventOut[]),
+  ]);
+
+  const reviewAlerts = reviews.map(reviewToAlert);
+  const cctvAlerts = cctvEvents
+    .filter(e => e.status === "OPEN")
+    .map(cctvEventToAlert);
+
+  const alerts = [...reviewAlerts, ...cctvAlerts];
 
   return {
     critical: alerts.filter(a => a.type === "critical").length,
