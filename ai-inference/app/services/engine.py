@@ -26,7 +26,7 @@ def _ensure_dir(path: str) -> None:
 
 class InferenceEngine:
     def __init__(self) -> None:
-        self.mock = bool(settings.AI_MOCK_MODE)
+        self.mock = str(getattr(settings, "AI_MOCK_MODE", "0")).strip().lower() in ("1", "true", "yes", "y", "on")
         self.prototype_index: PrototypeIndex | None = None
 
         self.yolo = None
