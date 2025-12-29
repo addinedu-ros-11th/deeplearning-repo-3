@@ -1,6 +1,5 @@
 import { useState, useEffect } from "react";
 import KPICard from "./KPICard";
-import TableFloorPlan from "./TableFloorPlan";
 import HourlyRevenueChart from "./HourlyRevenueChart";
 import ProductSalesChart from "./ProductSalesChart";
 import TransactionLog from "./TransactionLog";
@@ -10,7 +9,6 @@ import {
   fetchRecentTransactions,
   fetchAlertsSummary,
   fetchProductSales,
-  fetchTables,
   fetchHourlyRevenue,
 } from "@/api/dashboardApi";
 import type {
@@ -18,7 +16,6 @@ import type {
   Transaction,
   AlertSummary,
   ProductSalesData,
-  TableData,
   HourlyRevenuePoint,
 } from "@/api/types";
 
@@ -27,7 +24,6 @@ interface DashboardData {
   transactions: Transaction[];
   alerts: AlertSummary[];
   productSales: ProductSalesData[];
-  tables: TableData[];
   hourlyRevenue: HourlyRevenuePoint[];
 }
 
@@ -42,16 +38,15 @@ const DashboardContent = () => {
         setLoading(true);
         setError(null);
 
-        const [kpis, transactions, alerts, productSales, tables, hourlyRevenue] = await Promise.all([
+        const [kpis, transactions, alerts, productSales, hourlyRevenue] = await Promise.all([
           fetchKPIs(),
           fetchRecentTransactions(),
           fetchAlertsSummary(),
           fetchProductSales(),
-          fetchTables(),
           fetchHourlyRevenue(),
         ]);
 
-        setData({ kpis, transactions, alerts, productSales, tables, hourlyRevenue });
+        setData({ kpis, transactions, alerts, productSales, hourlyRevenue });
       } catch (err) {
         console.error("Dashboard data fetch error:", err);
         setError(err instanceof Error ? err.message : "데이터를 불러오는데 실패했습니다");
@@ -114,7 +109,6 @@ const DashboardContent = () => {
       <div className="grid grid-cols-1 lg:grid-cols-10 gap-6">
         {/* Left Column - 40% */}
         <div className="lg:col-span-4 space-y-6">
-          <TableFloorPlan tables={data?.tables} />
           <TransactionLog transactions={data?.transactions} />
         </div>
 

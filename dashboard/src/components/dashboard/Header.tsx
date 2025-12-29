@@ -1,6 +1,4 @@
-import { Bell, User, Calendar } from "lucide-react";
-import { Button } from "@/components/ui/button";
-import { Badge } from "@/components/ui/badge";
+import { User, Calendar } from "lucide-react";
 
 const Header = () => {
   const currentDate = new Date().toLocaleDateString("ko-KR", {
@@ -34,14 +32,6 @@ const Header = () => {
 
       {/* Right Section */}
       <div className="flex items-center gap-4">
-        {/* Notifications */}
-        <Button variant="ghost" size="icon" className="relative hover:bg-muted">
-          <Bell className="w-5 h-5 text-muted-foreground" />
-          <Badge className="absolute -top-1 -right-1 w-5 h-5 flex items-center justify-center p-0 bg-destructive text-destructive-foreground text-xs">
-            3
-          </Badge>
-        </Button>
-
         {/* User Profile */}
         <div className="flex items-center gap-3 px-3 py-2 rounded-xl bg-muted/30 border border-border hover:bg-muted/50 cursor-pointer transition-colors">
           <div className="w-8 h-8 rounded-full bg-gradient-to-br from-primary to-accent flex items-center justify-center">

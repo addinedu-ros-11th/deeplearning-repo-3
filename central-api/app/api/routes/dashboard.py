@@ -4,9 +4,9 @@ from sqlalchemy import text, func
 from sqlalchemy.orm import Session
 from app.api.deps import get_db
 from app.core.security import require_admin_key
-from app.db.models import Store, OrderHdr, TraySession, Review
+from app.db.models import Store, OrderHdr, TraySession, Review, OrderStatus
 from app.schemas.dashboard import (
-    TopMenuRow, KPIRow, TableRow, HourlyRevenueRow,
+    TopMenuRow, KPIRow, HourlyRevenueRow,
     WeeklyDataRow, HourlyCustomersRow, CategoryDataRow, AnalyticsStatRow
 )
 
@@ -27,7 +27,8 @@ def top_menu(
     sql = text("""
         SELECT
           ol.item_id AS item_id,
-          mi.name_kor AS name,
+          mi.name_kor AS name_kor,
+          mi.name_eng AS name_eng,
           SUM(ol.qty) AS qty,
           SUM(ol.line_amount_won) AS amount_won
         FROM order_hdr oh
@@ -37,7 +38,7 @@ def top_menu(
           AND oh.status = 'PAID'
           AND oh.created_at >= :from_
           AND oh.created_at < :to_
-        GROUP BY ol.item_id, mi.name_kor
+        GROUP BY ol.item_id, mi.name_kor, mi.name_eng
         ORDER BY qty DESC
         LIMIT :limit
     """)
@@ -97,17 +98,7 @@ def get_kpis(
     customers_diff = today_customers - yesterday_customers
     customers_diff_str = f"+{customers_diff}명" if customers_diff >= 0 else f"{customers_diff}명"
 
-    # 3. 현재 테이블 점유율 (활성 세션 / 전체 테이블 수)
-    active_sessions = db.query(func.count(TraySession.session_id)).filter(
-        TraySession.store_id == store.store_id,
-        TraySession.status == "ACTIVE",
-    ).scalar()
-
-    # 테이블 수는 하드코딩 (실제로는 store 설정에서 가져와야 함)
-    total_tables = 20
-    occupancy_rate = round((active_sessions / total_tables) * 100) if total_tables > 0 else 0
-
-    # 4. 오늘 리뷰 필요 건수
+    # 3. 오늘 리뷰 필요 건수
     open_reviews = db.query(func.count(Review.review_id)).filter(
         Review.status == "OPEN",
     ).scalar()
@@ -130,14 +121,6 @@ def get_kpis(
             variant="customers",
         ),
         KPIRow(
-            icon="occupancy",
-            title="테이블 점유율",
-            value=f"{occupancy_rate}%",
-            subtitle=f"{active_sessions}/{total_tables} 테이블 사용중",
-            trend="neutral",
-            variant="occupancy",
-        ),
-        KPIRow(
             icon="alerts",
             title="검토 필요",
             value=f"{open_reviews}건",
@@ -146,76 +129,6 @@ def get_kpis(
             variant="alerts",
         ),
     ]
-
-
-@router.get("/dashboards/tables", response_model=list[TableRow])
-def get_tables(
-    store_code: str,
-    db: Session = Depends(get_db),
-):
-    """테이블 현황 조회"""
-    store = db.query(Store).filter(Store.store_code == store_code).first()
-    if not store:
-        raise HTTPException(status_code=404, detail="store not found")
-
-    # 활성 세션 조회
-    active_sessions = db.query(TraySession).filter(
-        TraySession.store_id == store.store_id,
-        TraySession.status == "ACTIVE",
-    ).all()
-
-    # 세션을 테이블 ID로 매핑 (session_id의 마지막 숫자를 테이블 ID로 사용)
-    occupied_tables = {}
-    for session in active_sessions:
-        # 테이블 ID는 1-20 범위로 가정 (session_id % 20 + 1)
-        table_id = (session.session_id % 20) + 1
-        elapsed = datetime.now() - session.started_at
-        elapsed_minutes = int(elapsed.total_seconds() // 60)
-
-        # 주문 금액 조회
-        order_amount = 0
-        if session.order:
-            order_amount = session.order.total_amount_won
-
-        occupied_tables[table_id] = {
-            "customers": 1,  # 실제로는 세션에서 고객 수를 추적해야 함
-            "occupancy_time": f"{elapsed_minutes}분",
-            "order_amount": f"₩{order_amount:,}" if order_amount > 0 else None,
-        }
-
-    # 리뷰 필요한 세션 (이상 감지)
-    review_sessions = db.query(TraySession).join(Review).filter(
-        TraySession.store_id == store.store_id,
-        Review.status == "OPEN",
-    ).all()
-
-    abnormal_tables = set()
-    for session in review_sessions:
-        table_id = (session.session_id % 20) + 1
-        abnormal_tables.add(table_id)
-
-    # 20개 테이블 생성
-    tables = []
-    for i in range(1, 21):
-        if i in abnormal_tables:
-            status = "abnormal"
-            info = occupied_tables.get(i, {})
-        elif i in occupied_tables:
-            status = "occupied"
-            info = occupied_tables[i]
-        else:
-            status = "vacant"
-            info = {}
-
-        tables.append(TableRow(
-            id=i,
-            status=status,
-            customers=info.get("customers"),
-            occupancy_time=info.get("occupancy_time"),
-            order_amount=info.get("order_amount"),
-        ))
-
-    return tables
 
 
 @router.get("/dashboards/hourly-revenue", response_model=list[HourlyRevenueRow])
@@ -255,9 +168,9 @@ def get_hourly_revenue(
     # 시간대별 매출 맵 생성
     hourly_map = {row["hour"]: int(row["revenue"]) for row in rows}
 
-    # 영업 시간 (7시 ~ 22시) 기준으로 전체 시간대 반환
+    # 전체 시간대 (0-23시) 반환
     result = []
-    for hour in range(7, 23):
+    for hour in range(24):
         time_str = f"{hour:02d}:00"
         revenue = hourly_map.get(hour, 0)
         result.append(HourlyRevenueRow(time=time_str, revenue=revenue))
@@ -279,19 +192,23 @@ def get_weekly_data(
     if not store:
         raise HTTPException(status_code=404, detail="store not found")
 
-    # 최근 7일
+    # 이번 주 일요일부터 토요일까지 (달력 순서)
     today = datetime.now().replace(hour=0, minute=0, second=0, microsecond=0)
-    days = ["일", "월", "화", "수", "목", "금", "토"]
+    # 이번 주 일요일 찾기 (isoweekday: 1=월, 7=일)
+    days_since_sunday = today.isoweekday() % 7  # 일요일=0, 월요일=1, ..., 토요일=6
+    week_start = today - timedelta(days=days_since_sunday)  # 이번 주 일요일
 
+    days = ["일", "월", "화", "수", "목", "금", "토"]
     result = []
-    for i in range(6, -1, -1):  # 6일 전부터 오늘까지
-        day_start = today - timedelta(days=i)
+
+    for i in range(7):  # 일요일부터 토요일까지
+        day_start = week_start + timedelta(days=i)
         day_end = day_start + timedelta(days=1)
 
         # 매출 조회
         revenue = db.query(func.coalesce(func.sum(OrderHdr.total_amount_won), 0)).filter(
             OrderHdr.store_id == store.store_id,
-            OrderHdr.status == "PAID",
+            OrderHdr.status == OrderStatus.PAID,
             OrderHdr.created_at >= day_start,
             OrderHdr.created_at < day_end,
         ).scalar()
@@ -303,9 +220,8 @@ def get_weekly_data(
             TraySession.created_at < day_end,
         ).scalar()
 
-        day_name = days[day_start.weekday()]
         result.append(WeeklyDataRow(
-            day=day_name,
+            day=days[i],
             revenue=int(revenue),
             customers=int(customers),
         ))
@@ -323,33 +239,30 @@ def get_hourly_customers(
     if not store:
         raise HTTPException(status_code=404, detail="store not found")
 
+    # 오늘 날짜 범위
     today = datetime.now().replace(hour=0, minute=0, second=0, microsecond=0)
     tomorrow = today + timedelta(days=1)
 
-    # 시간대별 고객 수 집계
-    sql = text("""
-        SELECT
-          HOUR(created_at) AS hour,
-          COUNT(*) AS customers
-        FROM tray_session
-        WHERE store_id = :store_id
-          AND created_at >= :today
-          AND created_at < :tomorrow
-        GROUP BY HOUR(created_at)
-        ORDER BY hour
-    """)
+    # ORM으로 오늘의 모든 세션 가져오기
+    sessions = db.query(TraySession).filter(
+        TraySession.store_id == store.store_id,
+        TraySession.created_at >= today,
+        TraySession.created_at < tomorrow,
+    ).all()
 
-    rows = db.execute(sql, {
-        "store_id": store.store_id,
-        "today": today,
-        "tomorrow": tomorrow,
-    }).mappings().all()
+    # Python에서 시간대별로 그룹화
+    hourly_map = {}
+    print(f"\n=== HOURLY DEBUG ===")
+    for session in sessions:
+        hour = session.created_at.hour
+        print(f"Session {session.session_id}: created_at={session.created_at}, hour={hour}")
+        hourly_map[hour] = hourly_map.get(hour, 0) + 1
+    print(f"Hourly map: {hourly_map}")
+    print(f"=== END DEBUG ===\n")
 
-    hourly_map = {row["hour"]: int(row["customers"]) for row in rows}
-
-    # 영업 시간 (9시 ~ 21시)
+    # 전체 시간대 (0-23시) 반환
     result = []
-    for hour in range(9, 22):
+    for hour in range(24):
         result.append(HourlyCustomersRow(
             hour=f"{hour:02d}",
             customers=hourly_map.get(hour, 0),
@@ -374,16 +287,17 @@ def get_category_data(
     # 카테고리별 판매량 집계
     sql = text("""
         SELECT
-          COALESCE(mi.category, '기타') AS category,
+          COALESCE(ci.name, '기타') AS category,
           SUM(ol.qty) AS total_qty
         FROM order_hdr oh
         JOIN order_line ol ON ol.order_id = oh.order_id
         JOIN menu_item mi ON mi.item_id = ol.item_id
+        JOIN category ci ON ci.category_id = mi.category_id
         WHERE oh.store_id = :store_id
           AND oh.status = 'PAID'
           AND oh.created_at >= :week_ago
           AND oh.created_at < :today
-        GROUP BY mi.category
+        GROUP BY mi.category_id
         ORDER BY total_qty DESC
     """)
 

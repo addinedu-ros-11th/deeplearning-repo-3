@@ -3,7 +3,7 @@ from fastapi import APIRouter, Depends, HTTPException
 from sqlalchemy.orm import Session, joinedload
 from app.api.deps import get_db
 from app.core.security import require_admin_key
-from app.db.models import TraySession, OrderHdr, OrderLine, OrderStatus, DecisionState, RecognitionRun, Review, ReviewStatus, TraySessionStatus
+from app.db.models import TraySession, OrderHdr, OrderLine, OrderStatus, DecisionState, RecognitionRun, Review, ReviewStatus, TraySessionStatus, Store, MenuItem
 from app.schemas.order import OrderHdrOut, OrderCreate, TraySessionCreate
 
 router = APIRouter(dependencies=[Depends(require_admin_key)])
@@ -97,21 +97,77 @@ def save_order(body: OrderCreate, db: Session = Depends(get_db)):
 
 @router.get("/orders", response_model=list[OrderHdrOut])
 def list_orders(store_id: int | None = None, from_: datetime | None = None, to: datetime | None = None, db: Session = Depends(get_db)):
-    q = db.query(OrderHdr).options(joinedload(OrderHdr.lines))
+    q = db.query(OrderHdr).options(
+        joinedload(OrderHdr.lines).joinedload(OrderLine.menu_item),
+        joinedload(OrderHdr.store)
+    )
     if store_id:
         q = q.filter(OrderHdr.store_id == store_id)
     if from_:
         q = q.filter(OrderHdr.created_at >= from_)
     if to:
         q = q.filter(OrderHdr.created_at < to)
-    return q.order_by(OrderHdr.created_at.desc()).all()
+
+    orders = q.order_by(OrderHdr.created_at.desc()).all()
+
+    result = []
+    for order in orders:
+        order_dict = {
+            "order_id": order.order_id,
+            "store_id": order.store_id,
+            "store_name": order.store.name if order.store else None,
+            "session_id": order.session_id,
+            "total_amount_won": order.total_amount_won,
+            "status": order.status,
+            "created_at": order.created_at,
+            "lines": [
+                {
+                    "order_line_id": line.order_line_id,
+                    "order_id": line.order_id,
+                    "item_id": line.item_id,
+                    "item_name": line.menu_item.name_kor if line.menu_item else None,
+                    "qty": line.qty,
+                    "unit_price_won": line.unit_price_won,
+                    "line_amount_won": line.line_amount_won,
+                }
+                for line in order.lines
+            ]
+        }
+        result.append(order_dict)
+
+    return result
 
 @router.get("/orders/{order_id}", response_model=OrderHdrOut)
 def get_order(order_id: int, db: Session = Depends(get_db)):
-    o = db.query(OrderHdr).options(joinedload(OrderHdr.lines)).filter(OrderHdr.order_id == order_id).first()
+    o = db.query(OrderHdr).options(
+        joinedload(OrderHdr.lines).joinedload(OrderLine.menu_item),
+        joinedload(OrderHdr.store)
+    ).filter(OrderHdr.order_id == order_id).first()
     if not o:
         raise HTTPException(status_code=404, detail="order not found")
-    return o
+
+    # 응답 구성 (store_name과 item_name 추가)
+    return {
+        "order_id": o.order_id,
+        "store_id": o.store_id,
+        "store_name": o.store.name if o.store else None,
+        "session_id": o.session_id,
+        "total_amount_won": o.total_amount_won,
+        "status": o.status,
+        "created_at": o.created_at,
+        "lines": [
+            {
+                "order_line_id": line.order_line_id,
+                "order_id": line.order_id,
+                "item_id": line.item_id,
+                "item_name": line.menu_item.name_kor if line.menu_item else None,
+                "qty": line.qty,
+                "unit_price_won": line.unit_price_won,
+                "line_amount_won": line.line_amount_won,
+            }
+            for line in o.lines
+        ]
+    }
 
 # @router.post("/tray-sessions/{session_uuid}/orders", response_model=OrderHdrOut)
 # def create_order_for_session(session_uuid: str, body: OrderCreate, db: Session = Depends(get_db)):

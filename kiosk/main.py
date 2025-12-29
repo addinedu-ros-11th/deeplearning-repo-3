@@ -82,8 +82,11 @@ class KioskApp(QMainWindow):
             'check': 2,
             'payment': 3
         }
-        
+
         if screen_name in screens:
+            # check 화면 전환 시 장바구니 데이터로 UI 갱신
+            if screen_name == 'check':
+                self.check_screen.refresh()
             self.stacked.setCurrentIndex(screens[screen_name])
 
 

@@ -89,7 +89,7 @@ const StoreContent = () => {
       </div>
 
       {/* Store Info Cards */}
-      <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+      <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
         <div className="bg-card rounded-2xl p-6 border border-border">
           <h3 className="text-lg font-semibold text-foreground mb-4">매장 정보</h3>
           <div className="space-y-3">
@@ -104,16 +104,6 @@ const StoreContent = () => {
             <div>
               <p className="text-sm text-muted-foreground">영업 시간</p>
               <p className="text-foreground font-medium">{storeInfo?.operatingHours || "-"}</p>
-            </div>
-          </div>
-        </div>
-
-        <div className="bg-card rounded-2xl p-6 border border-border">
-          <h3 className="text-lg font-semibold text-foreground mb-4">테이블 현황</h3>
-          <div className="flex items-center justify-center h-32">
-            <div className="text-center">
-              <p className="text-5xl font-bold text-primary">{storeInfo?.totalTables || 0}</p>
-              <p className="text-muted-foreground mt-2">총 테이블 수</p>
             </div>
           </div>
         </div>

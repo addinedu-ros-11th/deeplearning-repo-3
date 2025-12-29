@@ -4,7 +4,6 @@
 
 import type {
   KPIData,
-  TableData,
   AlertSummary,
   AlertSeverity,
   HourlyRevenuePoint,
@@ -19,7 +18,8 @@ import { orderToTransaction } from "./paymentApi";
 // Top Menu API 응답 타입 (dashboardApi 전용)
 interface TopMenuRow {
   item_id: number;
-  name: string;
+  name_kor: string;
+  name_eng: string;
   qty: number;
   amount_won: number;
 }
@@ -32,15 +32,6 @@ interface KPIOut {
   subtitle: string;
   trend: "up" | "down" | "neutral";
   variant: "revenue" | "customers" | "occupancy" | "alerts";
-}
-
-// Table API 응답 타입
-interface TableOut {
-  id: number;
-  status: "occupied" | "cleaning" | "abnormal" | "vacant";
-  customers: number | null;
-  occupancy_time: string | null;
-  order_amount: string | null;
 }
 
 /**
@@ -57,24 +48,8 @@ export async function fetchKPIs(storeCode: string = DEFAULT_STORE_CODE): Promise
  */
 export async function fetchRecentTransactions() {
   const orders = await apiFetch<OrderHdrOut[]>("/orders");
-  // 최근 5개만 반환
-  return orders.slice(0, 5).map(orderToTransaction);
-}
-
-/**
- * 테이블 배치도 조회 (tables API 연결)
- */
-export async function fetchTables(storeCode: string = DEFAULT_STORE_CODE): Promise<TableData[]> {
-  const params = new URLSearchParams({ store_code: storeCode });
-  const tables = await apiFetch<TableOut[]>(`/dashboards/tables?${params}`);
-
-  return tables.map(table => ({
-    id: table.id,
-    status: table.status,
-    customers: table.customers ?? undefined,
-    occupancyTime: table.occupancy_time ?? undefined,
-    orderAmount: table.order_amount ?? undefined,
-  }));
+  // 최근 5개만 반환, 대시보드에서는 줄바꿈으로 상품 구분
+  return orders.slice(0, 5).map(order => orderToTransaction(order, "\n"));
 }
 
 /**
@@ -88,11 +63,24 @@ export async function fetchAlertsSummary(): Promise<AlertSummary[]> {
     if (review.reason === "REVIEW") severity = "critical";
     else if (review.reason === "UNKNOWN") severity = "warning";
 
+    // top_k_json 파싱하여 메시지 생성
+    let message = `세션 ${review.session_id} 검토 필요`;
+    if (review.top_k_json && Array.isArray(review.top_k_json)) {
+      const itemIds = review.top_k_json
+        .map((item: any) => item.item_id)
+        .filter((id: any) => id !== undefined)
+        .slice(0, 3); // 최대 3개만 표시
+
+      if (itemIds.length > 0) {
+        message = `인식된 아이템: ${itemIds.map((id: number) => `#${id}`).join(", ")}`;
+      }
+    }
+
     return {
       id: review.review_id,
       severity,
       type: review.reason,
-      message: `세션 ${review.session_id} 검토 필요`,
+      message,
       timestamp: new Date(review.created_at).toLocaleString("ko-KR"),
     };
   });
@@ -129,8 +117,8 @@ export async function fetchProductSales(storeCode: string = DEFAULT_STORE_CODE):
   const totalQty = topMenu.reduce((sum, item) => sum + item.qty, 0);
 
   return topMenu.map(item => ({
-    name: item.name,
-    nameEn: item.name, // 영문명이 없으므로 동일하게 사용
+    name: item.name_kor,
+    nameEn: item.name_eng,
     value: item.qty,
     percentage: totalQty > 0 ? Math.round((item.qty / totalQty) * 100) : 0,
   }));
@@ -141,9 +129,8 @@ export async function fetchProductSales(storeCode: string = DEFAULT_STORE_CODE):
  */
 export async function fetchDashboardSummary(): Promise<DashboardSummary> {
   // 병렬로 모든 데이터 조회
-  const [kpis, tables, transactions, alerts, hourlyRevenue, productSales] = await Promise.all([
+  const [kpis, transactions, alerts, hourlyRevenue, productSales] = await Promise.all([
     fetchKPIs(),
-    fetchTables(),
     fetchRecentTransactions(),
     fetchAlertsSummary(),
     fetchHourlyRevenue(),
@@ -152,7 +139,6 @@ export async function fetchDashboardSummary(): Promise<DashboardSummary> {
 
   return {
     kpis,
-    tables,
     transactions,
     alerts,
     hourlyRevenue,

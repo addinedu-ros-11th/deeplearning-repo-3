@@ -1,11 +1,10 @@
 import { useState } from "react";
-import { 
-  Home, 
-  CreditCard, 
-  Store, 
-  BarChart3, 
-  Bell, 
-  Settings,
+import {
+  Home,
+  CreditCard,
+  Store,
+  BarChart3,
+  Bell,
   ChevronLeft,
   ChevronRight
 } from "lucide-react";
@@ -24,7 +23,6 @@ const navItems: NavItem[] = [
   { icon: Store, label: "Store", labelKr: "매장 관리", id: "store" },
   { icon: BarChart3, label: "Analytics", labelKr: "분석", id: "analytics" },
   { icon: Bell, label: "Alerts", labelKr: "알림", id: "alerts" },
-  { icon: Settings, label: "Settings", labelKr: "설정", id: "settings" },
 ];
 
 interface SidebarProps {

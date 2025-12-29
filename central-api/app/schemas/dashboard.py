@@ -3,7 +3,8 @@ from typing import Literal, Optional
 
 class TopMenuRow(BaseModel):
     item_id: int
-    name: str
+    name_kor: str
+    name_eng: str
     qty: int
     amount_won: int
 
@@ -15,14 +16,6 @@ class KPIRow(BaseModel):
     subtitle: str
     trend: Literal["up", "down", "neutral"]
     variant: Literal["revenue", "customers", "occupancy", "alerts"]
-
-
-class TableRow(BaseModel):
-    id: int
-    status: Literal["occupied", "cleaning", "abnormal", "vacant"]
-    customers: Optional[int] = None
-    occupancy_time: Optional[str] = None
-    order_amount: Optional[str] = None
 
 
 class HourlyRevenueRow(BaseModel):

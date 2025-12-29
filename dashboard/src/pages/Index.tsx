@@ -6,7 +6,6 @@ import PaymentContent from "@/components/dashboard/PaymentContent";
 import StoreContent from "@/components/dashboard/StoreContent";
 import AnalyticsContent from "@/components/dashboard/AnalyticsContent";
 import AlertsContent from "@/components/dashboard/AlertsContent";
-import SettingsContent from "@/components/dashboard/SettingsContent";
 
 const Index = () => {
   const [activeTab, setActiveTab] = useState("dashboard");
@@ -23,8 +22,6 @@ const Index = () => {
         return <AnalyticsContent />;
       case "alerts":
         return <AlertsContent />;
-      case "settings":
-        return <SettingsContent />;
       default:
         return <DashboardContent />;
     }
