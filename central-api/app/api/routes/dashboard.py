@@ -98,17 +98,7 @@ def get_kpis(
     customers_diff = today_customers - yesterday_customers
     customers_diff_str = f"+{customers_diff}명" if customers_diff >= 0 else f"{customers_diff}명"
 
-    # 3. 현재 테이블 점유율 (활성 세션 / 전체 테이블 수)
-    active_sessions = db.query(func.count(TraySession.session_id)).filter(
-        TraySession.store_id == store.store_id,
-        TraySession.status == "ACTIVE",
-    ).scalar()
-
-    # 테이블 수는 하드코딩 (실제로는 store 설정에서 가져와야 함)
-    total_tables = 20
-    occupancy_rate = round((active_sessions / total_tables) * 100) if total_tables > 0 else 0
-
-    # 4. 오늘 리뷰 필요 건수
+    # 3. 오늘 리뷰 필요 건수
     open_reviews = db.query(func.count(Review.review_id)).filter(
         Review.status == "OPEN",
     ).scalar()
@@ -129,14 +119,6 @@ def get_kpis(
             subtitle=f"전일 대비 {customers_diff_str}",
             trend=customers_trend,
             variant="customers",
-        ),
-        KPIRow(
-            icon="occupancy",
-            title="테이블 점유율",
-            value=f"{occupancy_rate}%",
-            subtitle=f"{active_sessions}/{total_tables} 테이블 사용중",
-            trend="neutral",
-            variant="occupancy",
         ),
         KPIRow(
             icon="alerts",
