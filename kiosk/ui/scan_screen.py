@@ -319,18 +319,30 @@ class ScanScreen(QWidget):
         else:
             # 아이템 목록 표시
             for item in self.data.items:
-                item_widget = QLabel(
-                    f"{item['name']} x{item['qty']} - {item['unit_price'] * item['qty']:,}원"
-                )
-                item_widget.setFixedSize(954, 170)
-                item_widget.setStyleSheet("""
+                item_container = QWidget()
+                item_container.setFixedSize(954, 100)
+                item_container.setStyleSheet("""
                     background-color: rgba(250, 243, 225, 0.7);
-                    border-radius: 3px;
-                    font-size: 40px;
-                    padding: 7px;
+                    border-radius: 10px;
                 """)
-                item_widget.setAlignment(Qt.AlignmentFlag.AlignLeft | Qt.AlignmentFlag.AlignVCenter)
-                self.scroll_layout.addWidget(item_widget, alignment=Qt.AlignmentFlag.AlignHCenter)
+
+                item_layout = QHBoxLayout(item_container)
+                item_layout.setContentsMargins(30, 15, 30, 15)
+
+                # 이름 (왼쪽)
+                name_label = QLabel(item['name'])
+                name_label.setStyleSheet("font-size: 36px; background: transparent;")
+                name_label.setAlignment(Qt.AlignmentFlag.AlignLeft | Qt.AlignmentFlag.AlignVCenter)
+
+                # 단가 x 개수 (오른쪽)
+                price_label = QLabel(f"{item['unit_price']:,}원 x {item['qty']}")
+                price_label.setStyleSheet("font-size: 36px; background: transparent;")
+                price_label.setAlignment(Qt.AlignmentFlag.AlignRight | Qt.AlignmentFlag.AlignVCenter)
+
+                item_layout.addWidget(name_label)
+                item_layout.addWidget(price_label)
+
+                self.scroll_layout.addWidget(item_container, alignment=Qt.AlignmentFlag.AlignHCenter)
         
         self.scroll_layout.addStretch()
 
@@ -484,15 +496,19 @@ class ScanScreen(QWidget):
 
         logging.info(f"[AI추론] 결과: decision={decision}, result_json={result_json}")
 
-        if decision == "AUTO":
+        # 실제 환경에선 아래 주석 해제 필요
+        # if decision == "AUTO":
+        if decision == "AUTO" or decision == "REVIEW":
             # 인식된 아이템을 장바구니에 추가 + 결제 버튼 활성화
             self.process_inference_result(result_json)
             self.pay_btn.setEnabled(True)
+            """
         elif decision == "REVIEW":
             # 아이템 표시하되 결제 버튼 비활성화
             logging.warning("[AI추론] 수동 검토 필요 - 결제 버튼 비활성화")
             self.process_inference_result(result_json)
             self.pay_btn.setEnabled(False)
+            """
         else:
             logging.warning(f"[AI추론] 알 수 없는 결과: {decision}")
             self.pay_btn.setEnabled(False)
