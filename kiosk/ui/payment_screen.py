@@ -7,6 +7,7 @@ from time import time
 from datetime import datetime
 from thread.order_save_worker import OrderSaveWorker
 import logging
+from arduino.check_pay import RFIDPayment
 
 class PaymentScreen(QWidget):
     def __init__(self, switch_callback, data):
@@ -17,6 +18,7 @@ class PaymentScreen(QWidget):
         self.timeout_timer = None
         self.data = data
         self.init_ui()
+        self.payment_class = RFIDPayment()
     
     def init_ui(self):
         layout = QVBoxLayout()
@@ -97,6 +99,7 @@ class PaymentScreen(QWidget):
     def check_payment_status(self):
         """결제 상태 확인"""
         self.timeout_timer.stop()
+        self.is_payed = self.payment_class.check_pay()
         
         if not self.is_payed:
             timeout_popup = PaymentTimeoutPopup()
