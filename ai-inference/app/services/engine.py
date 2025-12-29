@@ -119,49 +119,57 @@ class InferenceEngine:
             self._try_ingest_to_central(session_uuid, store_code, device_code, attempt_no, res)
             return res
 
-        # 5) TODO: 다음 단계에서 YOLO seg + crop -> embedding(q) 생성으로 교체
-        # 지금은 skeleton 유지: 랜덤 임베딩으로 knn 흐름만 유지
-        D = self.prototype_index.vectors.shape[1]
-        q = np.random.randn(D).astype(np.float32)
+        # 5) YOLO seg -> crop -> embedding -> kNN -> gating
+        instances = self._infer_instances(img)
 
-        topk = self.prototype_index.knn(q, k=5)
-        best_item, d1 = topk[0]
-        d2 = topk[1][1] if len(topk) > 1 else (d1 + 1.0)
-        margin = float(d2 - d1)
+        if not instances:
+            res = {
+                "overlap_score": None,
+                "decision": "UNKNOWN",
+                "result_json": {
+                    "mode": "real",
+                    "local_frame_path": local_path,
+                    "instances": [],
+                    "items": [],
+                    "error": "no detections",
+                },
+            }
+            self._try_ingest_to_central(session_uuid, store_code, device_code, attempt_no, res)
+            return res
 
-        state = "AUTO" if margin >= 0.03 else "REVIEW"
-        decision = "AUTO" if state == "AUTO" else "REVIEW"
+        # decision 정책(권장):
+        # - 하나라도 REVIEW/UNKNOWN 있으면 REVIEW
+        # - 전부 AUTO면 AUTO
+        # - 전부 UNKNOWN이면 UNKNOWN
+        states = [it["state"] for it in instances]
+        if all(s == "UNKNOWN" for s in states):
+            decision = "UNKNOWN"
+        elif any(s != "AUTO" for s in states):
+            decision = "REVIEW"
+        else:
+            decision = "AUTO"
 
-        # 옵션 A(좌표 오버레이): bbox 더미라도 포함 (YOLO 붙이면 실제 bbox/mask로 대체)
+        # items 집계(UNKNOWN 제외)
+        item_map = {}
+        for it in instances:
+            if it["state"] == "UNKNOWN":
+                continue
+            iid = int(it["best_item_id"])
+            item_map[iid] = item_map.get(iid, 0) + int(it.get("qty", 1))
+        items = [{"item_id": k, "qty": v} for k, v in item_map.items()]
+
         h, w = int(img.shape[0]), int(img.shape[1])
-        dummy_bbox = [int(w * 0.1), int(h * 0.1), int(w * 0.3), int(h * 0.3)]
-
         res = {
             "overlap_score": 0.0,
             "decision": decision,
             "result_json": {
-                "mode": "real_skeleton",
+                "mode": "real",
                 "local_frame_path": local_path,
                 "input": {"shape": [h, w, int(img.shape[2])]},
-                "instances": [
-                    {
-                        "instance_id": 1,
-                        "confidence": 0.9,
-                        "bbox": dummy_bbox,
-                        "label_text": f"item-{int(best_item)}",
-                        "top_k": [{"item_id": int(i), "distance": float(d)} for i, d in topk],
-                        "best_item_id": int(best_item),
-                        "match_distance": float(d1),
-                        "match_margin": margin,
-                        "state": state,
-                        "qty": 1,
-                    }
-                ],
-                "items": [{"item_id": int(best_item), "qty": 1}],
+                "instances": instances,
+                "items": items,
             },
         }
-
-        # ✅ Central 업로드(실패해도 로컬 응답은 유지)
         self._try_ingest_to_central(session_uuid, store_code, device_code, attempt_no, res)
         return res
 
