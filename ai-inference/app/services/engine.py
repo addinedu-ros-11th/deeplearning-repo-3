@@ -273,3 +273,111 @@ class InferenceEngine:
                                 std=(0.229, 0.224, 0.225)),
         ])
 
+    def _l2norm(self, v: np.ndarray, eps: float = 1e-12) -> np.ndarray:
+        n = np.linalg.norm(v) + eps
+        return (v / n).astype(np.float32)
+
+    @torch.no_grad()
+    def _embed_rgb(self, crop_rgb: np.ndarray) -> np.ndarray:
+        # crop_rgb: (H,W,3) RGB
+        pil = Image.fromarray(crop_rgb).convert("RGB")
+        x = self.embed_tf(pil).unsqueeze(0).to(self.device)  # (1,3,224,224)
+        y = self.embed_model(x)  # (1,2048)
+        v = y.squeeze(0).detach().cpu().numpy().astype(np.float32)
+        return self._l2norm(v)
+
+    def _masked_crop_rgb(self, img_rgb: np.ndarray, mask: np.ndarray, box: np.ndarray) -> np.ndarray:
+        h, w = img_rgb.shape[:2]
+
+        x1, y1, x2, y2 = box.astype(int).tolist()
+        x1 = max(0, min(x1, w - 1))
+        y1 = max(0, min(y1, h - 1))
+        x2 = max(0, min(x2, w))
+        y2 = max(0, min(y2, h))
+        if x2 <= x1: x2 = min(w, x1 + 1)
+        if y2 <= y1: y2 = min(h, y1 + 1)
+
+        # mask shape 맞추기
+        if mask.shape[0] != h or mask.shape[1] != w:
+            mask = cv2.resize(mask.astype(np.uint8), (w, h), interpolation=cv2.INTER_NEAREST)
+
+        crop = img_rgb[y1:y2, x1:x2].copy()
+        m = mask[y1:y2, x1:x2]
+
+        if m.max() > 1:
+            m = (m > 127).astype(np.uint8)
+        else:
+            m = (m > 0).astype(np.uint8)
+
+        bg = np.full_like(crop, 255, dtype=np.uint8)
+        m3 = np.repeat(m[:, :, None], 3, axis=2)
+        out = np.where(m3 == 1, crop, bg)
+        return out
+    
+    def _gate(self, d1: float, d2: float) -> tuple[str, float]:
+        unknown_th = float(getattr(settings, "UNKNOWN_DIST_TH", 0.35))
+        margin_th = float(getattr(settings, "MARGIN_TH", 0.03))
+        margin = float(d2 - d1)
+
+        if d1 > unknown_th:
+            return "UNKNOWN", margin
+        if margin < margin_th:
+            return "REVIEW", margin
+        return "AUTO", margin
+
+    def _infer_instances(self, img_rgb: np.ndarray) -> list[dict[str, Any]]:
+        if not self.yolo or not self.embed_model or not self.prototype_index:
+            return []
+
+        # Ultralytics는 numpy 입력이 BGR 기준인 케이스가 있어 안전하게 변환
+        img_bgr = img_rgb[:, :, ::-1].copy()
+
+        # YOLO seg
+        res = self.yolo.predict(
+            source=img_bgr,
+            imgsz=int(getattr(settings, "YOLO_IMGSZ", 640)),
+            conf=float(getattr(settings, "YOLO_CONF", 0.25)),
+            iou=float(getattr(settings, "YOLO_IOU", 0.7)),
+            device=self.device,
+            verbose=False,
+        )[0]
+
+        if res.masks is None or res.boxes is None or len(res.boxes) == 0:
+            return []
+
+        masks = res.masks.data.detach().cpu().numpy()  # (n,H,W)
+        boxes = res.boxes.xyxy.detach().cpu().numpy()  # (n,4)
+        confs = res.boxes.conf.detach().cpu().numpy()  # (n,)
+
+        instances: list[dict[str, Any]] = []
+        k = int(getattr(settings, "KNN_TOPK", 5))
+
+        for i in range(len(confs)):
+            crop_rgb = self._masked_crop_rgb(img_rgb, masks[i], boxes[i])
+            q = self._embed_rgb(crop_rgb)
+
+            topk = self.prototype_index.knn(q, k=k)  # [(item_id, dist), ...]
+            if not topk:
+                continue
+
+            best_item, d1 = topk[0]
+            d2 = topk[1][1] if len(topk) > 1 else (d1 + 1.0)
+
+            state, margin = self._gate(float(d1), float(d2))
+
+            # label_text는 “다른 서비스가 DB 조인”이므로 의미 없게 두는 게 안전합니다.
+            # 기존 클라이언트가 필드를 기대하면 빈 문자열 정도로 유지하세요.
+            instances.append({
+                "instance_id": len(instances) + 1,
+                "confidence": float(confs[i]),
+                "bbox": [int(x) for x in boxes[i].tolist()],
+                "label_text": "",  # 또는 f"item-{int(best_item)}"
+                "top_k": [{"item_id": int(it), "distance": float(d)} for it, d in topk],
+                "best_item_id": int(best_item),
+                "match_distance": float(d1),
+                "match_margin": float(margin),
+                "state": state,
+                "qty": 1,
+            })
+
+        return instances
