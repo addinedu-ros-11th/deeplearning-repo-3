@@ -2,7 +2,7 @@ import { useState, useEffect, useMemo } from "react";
 import { Bell, AlertTriangle, CheckCircle, XCircle, Filter, Clock } from "lucide-react";
 import { cn } from "@/lib/utils";
 import type { Alert, AlertSeverity, AlertCategory } from "@/api/types";
-import { fetchAlerts } from "@/api/alertsApi";
+import { fetchAlerts, confirmReview } from "@/api/alertsApi";
 
 const AlertsContent = () => {
   const [filter, setFilter] = useState<AlertSeverity | "all">("all");
@@ -60,6 +60,37 @@ const AlertsContent = () => {
   const getCategoryBadge = (category: AlertCategory) => {
     const labels: Record<AlertCategory, string> = { payment: "결제", safety: "안전", security: "보안" };
     return labels[category];
+  };
+
+  const handleConfirm = async (alertItem: Alert) => {
+    console.log("handleConfirm 호출:", alertItem);
+    console.log("review_id:", alertItem.review_id);
+    console.log("top_k_json:", alertItem.top_k_json);
+
+    if (!alertItem.review_id) {
+      console.error("리뷰 확정 처리 실패: review_id가 없습니다");
+      window.alert("리뷰 확정 처리 실패: review_id가 없습니다.");
+      return;
+    }
+
+    // top_k_json 검증 - 배열이고 비어있지 않아야 함
+    if (!Array.isArray(alertItem.top_k_json) || alertItem.top_k_json.length === 0) {
+      console.error("리뷰 확정 처리 실패: top_k_json이 비어있습니다", alertItem.top_k_json);
+      window.alert("리뷰 확정 처리 실패: 인식된 아이템이 없습니다.");
+      return;
+    }
+
+    try {
+      await confirmReview(alertItem.review_id, alertItem.top_k_json);
+      // 알림 목록 새로고침
+      const data = await fetchAlerts();
+      setAlerts(data);
+      window.alert("리뷰가 확정 처리되었습니다.");
+    } catch (err) {
+      console.error("리뷰 확정 처리 오류:", err);
+      const errorMsg = err instanceof Error ? err.message : "알 수 없는 오류";
+      window.alert(`리뷰 확정 처리에 실패했습니다: ${errorMsg}`);
+    }
   };
 
   if (loading) {
@@ -198,12 +229,18 @@ const AlertsContent = () => {
 
               <div className="flex items-center gap-2">
                 {alert.type === "critical" && (
-                  <button className="px-3 py-1.5 bg-destructive text-destructive-foreground rounded-lg text-sm font-medium hover:bg-destructive/90 transition-colors">
+                  <button
+                    onClick={() => handleConfirm(alert)}
+                    className="px-3 py-1.5 bg-destructive text-destructive-foreground rounded-lg text-sm font-medium hover:bg-destructive/90 transition-colors"
+                  >
                     확인
                   </button>
                 )}
                 {alert.type === "warning" && (
-                  <button className="px-3 py-1.5 bg-warning/20 text-warning rounded-lg text-sm font-medium hover:bg-warning/30 transition-colors">
+                  <button
+                    onClick={() => handleConfirm(alert)}
+                    className="px-3 py-1.5 bg-warning/20 text-warning rounded-lg text-sm font-medium hover:bg-warning/30 transition-colors"
+                  >
                     처리
                   </button>
                 )}

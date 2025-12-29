@@ -12,14 +12,29 @@ function reviewToAlert(review: ReviewOut): Alert {
   if (review.reason === "REVIEW") type = "critical";
   else if (review.reason === "UNKNOWN") type = "warning";
 
+  // top_k_json 파싱하여 메시지 생성
+  let message = `세션 ${review.session_id} 검토 필요: ${review.reason}`;
+  if (review.top_k_json && Array.isArray(review.top_k_json)) {
+    const itemIds = review.top_k_json
+      .map((item: any) => item.item_id)
+      .filter((id: any) => id !== undefined)
+      .slice(0, 3); // 최대 3개만 표시
+
+    if (itemIds.length > 0) {
+      message = `인식된 아이템: ${itemIds.map((id: number) => `#${id}`).join(", ")} (${review.reason})`;
+    }
+  }
+
   return {
     id: `REV-${review.review_id}`,
     type,
     category: "payment", // 리뷰는 결제 관련
-    message: `세션 ${review.session_id} 검토 필요: ${review.reason}`,
+    message,
     location: `Session #${review.session_id}`,
     timestamp: new Date(review.created_at).toLocaleString("ko-KR"),
     isRead: review.status === "RESOLVED",
+    review_id: review.review_id,  // 확정 처리에 필요
+    top_k_json: review.top_k_json,  // 확정 처리에 필요
   };
 }
 
@@ -98,6 +113,32 @@ export async function markAlertAsRead(alertId: string): Promise<Alert> {
  */
 export async function acknowledgeAlert(alertId: string): Promise<Alert> {
   return markAlertAsRead(alertId);
+}
+
+/**
+ * 리뷰 확정 처리 (top_k_json을 confirmed_items_json으로 사용)
+ */
+export async function confirmReview(reviewId: number, topKJson: any[]): Promise<ReviewOut> {
+  // top_k_json을 confirmed_items_json 형식으로 변환
+  // [{"item_id": 101, "distance": 0.14}, ...] -> [{"item_id": 101, "qty": 1}, ...]
+  const confirmedItems = topKJson.map((item: any) => ({
+    item_id: item.item_id,
+    qty: 1, // 기본 수량 1
+  }));
+
+  const review = await apiFetch<ReviewOut>(`/reviews/${reviewId}`, {
+    method: "PATCH",
+    headers: {
+      "Content-Type": "application/json",
+    },
+    body: JSON.stringify({
+      status: "RESOLVED",
+      resolved_by: "dashboard_user",
+      confirmed_items_json: confirmedItems,
+    }),
+  });
+
+  return review;
 }
 
 /**

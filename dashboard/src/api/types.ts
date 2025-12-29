@@ -79,6 +79,8 @@ export interface Alert {
   location: string;
   timestamp: string;
   isRead: boolean;
+  review_id?: number;  // 리뷰 ID (확정 처리에 필요)
+  top_k_json?: any;    // AI 인식 결과 (확정 처리에 필요)
 }
 
 export interface AlertSummary {
