@@ -27,7 +27,8 @@ def top_menu(
     sql = text("""
         SELECT
           ol.item_id AS item_id,
-          mi.name_kor AS name,
+          mi.name_kor AS name_kor,
+          mi.name_eng AS name_eng,
           SUM(ol.qty) AS qty,
           SUM(ol.line_amount_won) AS amount_won
         FROM order_hdr oh
@@ -37,7 +38,7 @@ def top_menu(
           AND oh.status = 'PAID'
           AND oh.created_at >= :from_
           AND oh.created_at < :to_
-        GROUP BY ol.item_id, mi.name_kor
+        GROUP BY ol.item_id, mi.name_kor, mi.name_eng
         ORDER BY qty DESC
         LIMIT :limit
     """)

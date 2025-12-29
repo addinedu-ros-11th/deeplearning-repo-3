@@ -18,7 +18,8 @@ import { orderToTransaction } from "./paymentApi";
 // Top Menu API 응답 타입 (dashboardApi 전용)
 interface TopMenuRow {
   item_id: number;
-  name: string;
+  name_kor: string;
+  name_eng: string;
   qty: number;
   amount_won: number;
 }
@@ -116,8 +117,8 @@ export async function fetchProductSales(storeCode: string = DEFAULT_STORE_CODE):
   const totalQty = topMenu.reduce((sum, item) => sum + item.qty, 0);
 
   return topMenu.map(item => ({
-    name: item.name,
-    nameEn: item.name, // 영문명이 없으므로 동일하게 사용
+    name: item.name_kor,
+    nameEn: item.name_eng,
     value: item.qty,
     percentage: totalQty > 0 ? Math.round((item.qty / totalQty) * 100) : 0,
   }));

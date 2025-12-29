@@ -3,7 +3,8 @@ from typing import Literal, Optional
 
 class TopMenuRow(BaseModel):
     item_id: int
-    name: str
+    name_kor: str
+    name_eng: str
     qty: int
     amount_won: int
 
