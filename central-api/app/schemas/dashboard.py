@@ -17,14 +17,6 @@ class KPIRow(BaseModel):
     variant: Literal["revenue", "customers", "occupancy", "alerts"]
 
 
-class TableRow(BaseModel):
-    id: int
-    status: Literal["occupied", "cleaning", "abnormal", "vacant"]
-    customers: Optional[int] = None
-    occupancy_time: Optional[str] = None
-    order_amount: Optional[str] = None
-
-
 class HourlyRevenueRow(BaseModel):
     time: str
     revenue: int

@@ -6,7 +6,7 @@ from app.api.deps import get_db
 from app.core.security import require_admin_key
 from app.db.models import Store, OrderHdr, TraySession, Review
 from app.schemas.dashboard import (
-    TopMenuRow, KPIRow, TableRow, HourlyRevenueRow,
+    TopMenuRow, KPIRow, HourlyRevenueRow,
     WeeklyDataRow, HourlyCustomersRow, CategoryDataRow, AnalyticsStatRow
 )
 
@@ -146,76 +146,6 @@ def get_kpis(
             variant="alerts",
         ),
     ]
-
-
-@router.get("/dashboards/tables", response_model=list[TableRow])
-def get_tables(
-    store_code: str,
-    db: Session = Depends(get_db),
-):
-    """테이블 현황 조회"""
-    store = db.query(Store).filter(Store.store_code == store_code).first()
-    if not store:
-        raise HTTPException(status_code=404, detail="store not found")
-
-    # 활성 세션 조회
-    active_sessions = db.query(TraySession).filter(
-        TraySession.store_id == store.store_id,
-        TraySession.status == "ACTIVE",
-    ).all()
-
-    # 세션을 테이블 ID로 매핑 (session_id의 마지막 숫자를 테이블 ID로 사용)
-    occupied_tables = {}
-    for session in active_sessions:
-        # 테이블 ID는 1-20 범위로 가정 (session_id % 20 + 1)
-        table_id = (session.session_id % 20) + 1
-        elapsed = datetime.now() - session.started_at
-        elapsed_minutes = int(elapsed.total_seconds() // 60)
-
-        # 주문 금액 조회
-        order_amount = 0
-        if session.order:
-            order_amount = session.order.total_amount_won
-
-        occupied_tables[table_id] = {
-            "customers": 1,  # 실제로는 세션에서 고객 수를 추적해야 함
-            "occupancy_time": f"{elapsed_minutes}분",
-            "order_amount": f"₩{order_amount:,}" if order_amount > 0 else None,
-        }
-
-    # 리뷰 필요한 세션 (이상 감지)
-    review_sessions = db.query(TraySession).join(Review).filter(
-        TraySession.store_id == store.store_id,
-        Review.status == "OPEN",
-    ).all()
-
-    abnormal_tables = set()
-    for session in review_sessions:
-        table_id = (session.session_id % 20) + 1
-        abnormal_tables.add(table_id)
-
-    # 20개 테이블 생성
-    tables = []
-    for i in range(1, 21):
-        if i in abnormal_tables:
-            status = "abnormal"
-            info = occupied_tables.get(i, {})
-        elif i in occupied_tables:
-            status = "occupied"
-            info = occupied_tables[i]
-        else:
-            status = "vacant"
-            info = {}
-
-        tables.append(TableRow(
-            id=i,
-            status=status,
-            customers=info.get("customers"),
-            occupancy_time=info.get("occupancy_time"),
-            order_amount=info.get("order_amount"),
-        ))
-
-    return tables
 
 
 @router.get("/dashboards/hourly-revenue", response_model=list[HourlyRevenueRow])

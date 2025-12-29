@@ -4,7 +4,6 @@
 
 import type {
   KPIData,
-  TableData,
   AlertSummary,
   AlertSeverity,
   HourlyRevenuePoint,
@@ -34,15 +33,6 @@ interface KPIOut {
   variant: "revenue" | "customers" | "occupancy" | "alerts";
 }
 
-// Table API 응답 타입
-interface TableOut {
-  id: number;
-  status: "occupied" | "cleaning" | "abnormal" | "vacant";
-  customers: number | null;
-  occupancy_time: string | null;
-  order_amount: string | null;
-}
-
 /**
  * KPI 데이터 조회 (kpis API 연결)
  */
@@ -59,22 +49,6 @@ export async function fetchRecentTransactions() {
   const orders = await apiFetch<OrderHdrOut[]>("/orders");
   // 최근 5개만 반환
   return orders.slice(0, 5).map(orderToTransaction);
-}
-
-/**
- * 테이블 배치도 조회 (tables API 연결)
- */
-export async function fetchTables(storeCode: string = DEFAULT_STORE_CODE): Promise<TableData[]> {
-  const params = new URLSearchParams({ store_code: storeCode });
-  const tables = await apiFetch<TableOut[]>(`/dashboards/tables?${params}`);
-
-  return tables.map(table => ({
-    id: table.id,
-    status: table.status,
-    customers: table.customers ?? undefined,
-    occupancyTime: table.occupancy_time ?? undefined,
-    orderAmount: table.order_amount ?? undefined,
-  }));
 }
 
 /**
@@ -141,9 +115,8 @@ export async function fetchProductSales(storeCode: string = DEFAULT_STORE_CODE):
  */
 export async function fetchDashboardSummary(): Promise<DashboardSummary> {
   // 병렬로 모든 데이터 조회
-  const [kpis, tables, transactions, alerts, hourlyRevenue, productSales] = await Promise.all([
+  const [kpis, transactions, alerts, hourlyRevenue, productSales] = await Promise.all([
     fetchKPIs(),
-    fetchTables(),
     fetchRecentTransactions(),
     fetchAlertsSummary(),
     fetchHourlyRevenue(),
@@ -152,7 +125,6 @@ export async function fetchDashboardSummary(): Promise<DashboardSummary> {
 
   return {
     kpis,
-    tables,
     transactions,
     alerts,
     hourlyRevenue,

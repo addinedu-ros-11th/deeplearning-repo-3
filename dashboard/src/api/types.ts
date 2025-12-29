@@ -65,17 +65,6 @@ export interface Transaction {
   customer?: string;
 }
 
-// Table/Floor Plan Types
-export type TableStatus = "occupied" | "cleaning" | "abnormal" | "vacant";
-
-export interface TableData {
-  id: number;
-  status: TableStatus;
-  customers?: number;
-  occupancyTime?: string;
-  orderAmount?: string;
-}
-
 // Alert Types
 export type AlertSeverity = "critical" | "warning" | "normal";
 export type AlertCategory = "payment" | "safety" | "security";
@@ -163,7 +152,6 @@ export interface AnalyticsStat {
 // Dashboard Summary Types
 export interface DashboardSummary {
   kpis: KPIData[];
-  tables: TableData[];
   transactions: Transaction[];
   alerts: AlertSummary[];
   hourlyRevenue: HourlyRevenuePoint[];
