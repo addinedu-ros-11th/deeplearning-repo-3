@@ -1,35 +1,50 @@
 from __future__ import annotations
+
 from pydantic import BaseModel, Field, model_validator
 from typing import Any
 
+
 class TrayInferRequest(BaseModel):
-    session_uuid: str | None = None
-    attempt_no: int | None = Field(default=None, ge=1, le=3)
+    # Central 업로드 및 로컬 저장/추적에 필요
+    session_uuid: str
+    attempt_no: int = Field(ge=1, le=3)
 
-    store_code: str | None = None
-    device_code: str | None = None
+    store_code: str
+    device_code: str
 
-    frame_b64: str | None = None
-    frame_gcs_uri: str | None = None
+    # 단일 프레임(1장)만 허용
+    frame_b64: str
 
     @model_validator(mode="after")
     def _validate(self):
-        if not self.frame_b64 and not self.frame_gcs_uri:
-            raise ValueError("Either frame_b64 or frame_gcs_uri is required")
-        if self.frame_b64 and self.frame_gcs_uri:
-            raise ValueError("Provide only one of frame_b64 or frame_gcs_uri")
+        # 빈 문자열 방지
+        if not self.frame_b64 or not self.frame_b64.strip():
+            raise ValueError("frame_b64 is required")
         return self
-        
+
+
 class TrayInferResponse(BaseModel):
     overlap_score: float | None = None
     decision: str = Field(..., description="AUTO/REVIEW/UNKNOWN")
     result_json: dict[str, Any]
 
+
 class CctvInferRequest(BaseModel):
-    store_code: str | None = None
-    device_code: str | None = None
-    clip_gcs_uri: str | None = None
+    store_code: str
+    device_code: str
+
+    # 데모에서는 둘 중 하나만 쓰도록(원하면 더 축소 가능)
+    clip_local_path: str | None = None
     frames_b64: list[str] | None = None
+
+    @model_validator(mode="after")
+    def _validate(self):
+        if not self.clip_local_path and not self.frames_b64:
+            raise ValueError("Either clip_local_path or frames_b64 is required")
+        if self.clip_local_path and self.frames_b64:
+            raise ValueError("Provide only one of clip_local_path or frames_b64")
+        return self
+
 
 class CctvInferResponse(BaseModel):
     events: list[dict[str, Any]]
