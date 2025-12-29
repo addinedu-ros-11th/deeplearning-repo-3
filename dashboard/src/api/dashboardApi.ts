@@ -62,11 +62,24 @@ export async function fetchAlertsSummary(): Promise<AlertSummary[]> {
     if (review.reason === "REVIEW") severity = "critical";
     else if (review.reason === "UNKNOWN") severity = "warning";
 
+    // top_k_json 파싱하여 메시지 생성
+    let message = `세션 ${review.session_id} 검토 필요`;
+    if (review.top_k_json && Array.isArray(review.top_k_json)) {
+      const itemIds = review.top_k_json
+        .map((item: any) => item.item_id)
+        .filter((id: any) => id !== undefined)
+        .slice(0, 3); // 최대 3개만 표시
+
+      if (itemIds.length > 0) {
+        message = `인식된 아이템: ${itemIds.map((id: number) => `#${id}`).join(", ")}`;
+      }
+    }
+
     return {
       id: review.review_id,
       severity,
       type: review.reason,
-      message: `세션 ${review.session_id} 검토 필요`,
+      message,
       timestamp: new Date(review.created_at).toLocaleString("ko-KR"),
     };
   });
