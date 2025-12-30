@@ -87,6 +87,9 @@ class InferenceEngine:
         self.yolo_iou = _env_float("YOLO_IOU", 0.7)
         self.ai_device = os.getenv("AI_DEVICE", "cpu").strip() or "cpu"
 
+        self.use_job_queue = os.getenv("AI_USE_JOB_QUEUE", "1").strip() == "1"
+
+
     def startup_load(self) -> None:
         if self.mock:
             return
@@ -171,7 +174,8 @@ class InferenceEngine:
                     "items": [{"item_id": 101, "qty": 1}],
                 },
             }
-            self._try_ingest_to_central(session_uuid, store_code, device_code, attempt_no, res)
+            if not self.use_job_queue:
+                self._try_ingest_to_central(session_uuid, store_code, device_code, attempt_no, res)
             return res
 
         # 4) prototype index 없으면 UNKNOWN
@@ -188,7 +192,8 @@ class InferenceEngine:
                     "items": [],
                 },
             }
-            self._try_ingest_to_central(session_uuid, store_code, device_code, attempt_no, res)
+            if not self.use_job_queue:
+                self._try_ingest_to_central(session_uuid, store_code, device_code, attempt_no, res)
             return res
 
         # 5) YOLO seg -> crop -> embedding -> kNN -> gating
@@ -207,7 +212,8 @@ class InferenceEngine:
                     "error": "no detections",
                 },
             }
-            self._try_ingest_to_central(session_uuid, store_code, device_code, attempt_no, res)
+            if not self.use_job_queue:
+                self._try_ingest_to_central(session_uuid, store_code, device_code, attempt_no, res)
             return res
 
         # decision 정책(권장):
@@ -244,7 +250,8 @@ class InferenceEngine:
                 "items": items,
             },
         }
-        self._try_ingest_to_central(session_uuid, store_code, device_code, attempt_no, res)
+        if not self.use_job_queue:
+            self._try_ingest_to_central(session_uuid, store_code, device_code, attempt_no, res)
         return res
 
     def infer_cctv(self, payload: dict[str, Any]) -> dict[str, Any]:
