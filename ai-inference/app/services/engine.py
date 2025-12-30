@@ -34,6 +34,39 @@ def _env_float(name: str, default: float) -> float:
         return default
 
 
+    def _resolve_yolo_local_path(self) -> str | None:
+        # 1) 로컬 경로 우선
+        yolo_path = (
+            os.getenv("YOLO_MODEL_PATH", "").strip()
+            or str(getattr(settings, "YOLO_MODEL_PATH", "") or "").strip()
+        )
+        if yolo_path:
+            return yolo_path
+
+        # 2) URI로 받으면 캐시에 내려받음
+        yolo_uri = (
+            os.getenv("YOLO_MODEL_URI", "").strip()
+            or str(getattr(settings, "YOLO_MODEL_URI", "") or "").strip()
+        )
+        if not yolo_uri:
+            return None
+
+        cache_dir = os.path.join(getattr(settings, "CACHE_DIR", "/tmp"), "models")
+        _ensure_dir(cache_dir)
+
+        parsed = urlparse(yolo_uri)
+        filename = os.path.basename(parsed.path) or "yolo.pt"
+        local_path = os.path.join(cache_dir, filename)
+
+        # 이미 있으면 재사용
+        if os.path.exists(local_path) and os.path.getsize(local_path) > 0:
+            return local_path
+
+        # gs:// 또는 https:// 등 다운로드
+        download_to(yolo_uri, local_path)
+        return local_path
+
+
 class InferenceEngine:
     def __init__(self) -> None:
         self.mock = bool(getattr(settings, "AI_MOCK_MODE", False))
@@ -79,13 +112,10 @@ class InferenceEngine:
 
         # 2) YOLO 로드(있으면)
         try:
-            yolo_path = (
-                os.getenv("YOLO_MODEL_PATH", "").strip()
-                or str(getattr(settings, "YOLO_MODEL_PATH", "") or "").strip()
-            )
-            if yolo_path:
+            yolo_local = self._resolve_yolo_local_path()
+            if yolo_local:
                 from ultralytics import YOLO  # type: ignore
-                self.yolo = YOLO(yolo_path)
+                self.yolo = YOLO(yolo_local)
         except Exception:
             self.yolo = None
 
