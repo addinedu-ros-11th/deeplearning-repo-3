@@ -223,6 +223,10 @@ class InferenceEngine:
         clip_gcs_uri = payload.get("clip_gcs_uri")
         frames_b64 = payload.get("frames_b64")
         
+        # 입력 검증 (스키마에서 이미 검증되지만 추가 안전장치)
+        if not clip_gcs_uri and not frames_b64:
+            return {"events": []}
+        
         # clip_gcs_uri가 제공된 경우 다운로드하여 처리
         local_clip_path = None
         if clip_gcs_uri:
@@ -233,50 +237,36 @@ class InferenceEngine:
                 local_clip_path = os.path.join(cache_dir, f"clip_{timestamp}.mp4")
                 download_to(clip_gcs_uri, local_clip_path)
             except Exception as e:
-                # 다운로드 실패 시 빈 결과 반환
-                return {"events": [], "error": f"Failed to download clip: {e}"}
+                # 다운로드 실패 시 빈 결과 반환 (error 필드는 스키마에 없으므로 제거)
+                return {"events": []}
         
-        if self.mock:
-            return {
-                "events": [
-                    {
-                        "event_type": "FALL",
-                        "confidence": 0.88,
-                        "started_at": (now - timedelta(seconds=2)).replace(tzinfo=None).isoformat(sep=" "),
-                        "ended_at": now.replace(tzinfo=None).isoformat(sep=" "),
-                        "meta_json": {"mode": "mock", "clip_gcs_uri": clip_gcs_uri},
-                    }
-                ],
-            }
-        
-        # TODO: 실제 비디오 처리 로직 구현
-        # - local_clip_path 또는 frames_b64를 사용하여 이벤트 감지
-        # - OpenCV로 비디오 읽기 및 프레임 처리
-        
-        # 임시 파일 정리
-        if local_clip_path and os.path.exists(local_clip_path):
-            try:
-                os.remove(local_clip_path)
-            except Exception:
-                pass
-        
-        return {"events": []}
-
-    # def infer_cctv(self, payload: dict[str, Any]) -> dict[str, Any]:
-    #     now = datetime.now(timezone.utc)
-    #     if self.mock:
-    #         return {
-    #             "events": [
-    #                 {
-    #                     "event_type": "FALL",
-    #                     "confidence": 0.88,
-    #                     "started_at": (now - timedelta(seconds=2)).replace(tzinfo=None).isoformat(sep=" "),
-    #                     "ended_at": now.replace(tzinfo=None).isoformat(sep=" "),
-    #                     "meta_json": {"mode": "mock"},
-    #                 }
-    #             ]
-    #         }
-    #     return {"events": []}
+        try:
+            if self.mock:
+                return {
+                    "events": [
+                        {
+                            "event_type": "FALL",
+                            "confidence": 0.88,
+                            "started_at": (now - timedelta(seconds=2)).replace(tzinfo=None).isoformat(sep=" "),
+                            "ended_at": now.replace(tzinfo=None).isoformat(sep=" "),
+                            "meta_json": {"mode": "mock", "clip_gcs_uri": clip_gcs_uri},
+                        }
+                    ],
+                }
+            
+            # TODO: 실제 비디오 처리 로직 구현
+            # - clip_path_uri 또는 frames_b64를 사용하여 이벤트 감지
+            # - OpenCV로 비디오 읽기 및 프레임 처리
+            # - frames_b64가 제공된 경우 base64 디코딩하여 처리
+            
+            return {"events": []}
+        finally:
+            # 임시 파일 정리 (예외 발생 시에도 실행 보장)
+            if local_clip_path and os.path.exists(local_clip_path):
+                try:
+                    os.remove(local_clip_path)
+                except Exception:
+                    pass
 
     # -----------------------------
     # YOLO seg -> crop -> embedding -> kNN -> gating
