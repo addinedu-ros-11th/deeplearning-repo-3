@@ -71,6 +71,10 @@ class CentralClient:
         except Exception as e:
             raise CentralClientError(f"complete_tray_job failed: {e}") from e
 
+    def get_active_prototype_set(self, timeout_s: float = 3.0) -> dict[str, Any]:
+        """Active prototype set의 인덱스 URI 정보 반환"""
+        url = f"{self.base}/api/v1/prototypes/active"
+        # ... 구현 필요
 
     # def ensure_tray_session(
     #     self,
