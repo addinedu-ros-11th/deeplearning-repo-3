@@ -29,4 +29,9 @@ class Settings(BaseSettings):
     UNKNOWN_DIST_TH: float = 0.35               # UNKNOWN 판단(예시는 임의, 데이터로 튜닝)
     OVERLAP_BLOCK_TH: float = 0.25              # 인스턴스 overlap 차단
 
+    # Worker (Central Job polling)
+    AI_WORKER_MODE: int = 0                     # 1이면 FastAPI startup에서 worker thread 기동
+    WORKER_ID: str = "ai-worker-1"             # 중앙 Job claim에 사용
+    POLL_INTERVAL_S: float = 0.5                # job 없을 때 sleep
+
 settings = Settings()
