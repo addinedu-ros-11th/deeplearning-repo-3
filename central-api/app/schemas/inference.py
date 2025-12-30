@@ -129,6 +129,8 @@ class TrayJobOut(ORMBase):
 class TrayJobClaimRequest(BaseModel):
     worker_id: str = Field(..., min_length=1, max_length=64)
 
+class TrayJobClaimResponse(BaseModel):
+    job: TrayJobOut | None = None
 
 class TrayJobCompleteRequest(BaseModel):
     # AI 결과
