@@ -112,12 +112,7 @@ class PaymentScreen(QWidget):
                 self.timer_started = False
                 self.start_timeout_timer()
         else:
-            # 결제 완료
-            complete_popup = PaymentCompletePopup()
-            complete_popup.exec()
-            
-            if complete_popup.result == 'home':
-                self.switch_callback('home')
+            self.on_payment_success()
     
     def on_payment_success(self):
         """RFID 결제 성공 시 호출할 메서드"""
