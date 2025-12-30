@@ -1,16 +1,19 @@
 from __future__ import annotations
 
+from datetime import datetime
 from typing import Any, Literal
 from pydantic import BaseModel, Field, model_validator
 
-from app.db.models import DecisionState
+from app.schemas.common import ORMBase
+from app.db.models import DecisionState, InferenceJobStatus, InferenceJobType
 
 
 class TrayIngestRequest(BaseModel):
     """
-    로컬 AI(ai-inference) 또는 kiosk-agent가 Central로 업로드하는 payload.
-    - 이미지는 업로드하지 않음(옵션 A): 결과 좌표/라벨만 업로드
-    - 단, result_json 안에는 polygon/bbox/center/top_k 등을 포함할 수 있음
+    Central에 추론 결과를 '직접 ingest'하는 payload (레거시/디버그용).
+    - 메인 경로(B안): /inference/tray/jobs -> claim(poll) -> complete
+    - 본 payload는 이미지 업로드를 포함하지 않고 결과(result_json)만 저장한다.
+    - result_json 안에는 polygon/bbox/center/top_k 등을 포함할 수 있음
     """
     # attempt_no는 정책상 남겨둠(최대 3) — 추후 재시도/디버그/로그 정렬에 유용
     attempt_no: int = Field(..., ge=1, le=3)
@@ -69,9 +72,67 @@ class CctvIngestRequest(BaseModel):
     store_code: str
     device_code: str
     events: list[dict[str, Any]] = Field(default_factory=list)
-    # clip은 로컬 저장 정책이면 중앙에는 경로/메타만 올려도 됨
-    clip_local_path: str | None = None
+    clip_gcs_uri: str | None = None
 
 
 class CctvIngestResponse(BaseModel):
     created_event_ids: list[int] = Field(default_factory=list)
+
+
+# =====================
+# Inference Job (TRAY)
+# =====================
+class TrayJobCreate(BaseModel):
+    store_code: str
+    device_code: str
+    session_uuid: str | None = None
+
+    # 둘 중 하나만 허용
+    frame_b64: str | None = None
+    frame_gcs_uri: str | None = None
+
+    @model_validator(mode="after")
+    def _validate(self):
+        if not self.frame_b64 and not self.frame_gcs_uri:
+            raise ValueError("Either frame_b64 or frame_gcs_uri is required")
+        if self.frame_b64 and self.frame_gcs_uri:
+            raise ValueError("Provide only one of frame_b64 or frame_gcs_uri")
+        return self
+
+
+class TrayJobOut(ORMBase):
+    job_id: int
+    job_type: InferenceJobType
+    status: InferenceJobStatus
+
+    store_id: int
+    device_id: int
+    session_id: int | None = None
+    session_uuid: str | None = None
+    attempt_no: int | None = None
+
+    frame_gcs_uri: str
+
+    # 결과(완료 후)
+    run_id: int | None = None
+    decision: DecisionState | None = None
+    result_json: dict[str, Any] | None = None
+    error: str | None = None
+
+    # 워커 추적
+    worker_id: str | None = None
+    claimed_at: datetime | None = None
+    completed_at: datetime | None = None
+    created_at: datetime
+
+
+class TrayJobClaimRequest(BaseModel):
+    worker_id: str = Field(..., min_length=1, max_length=64)
+
+
+class TrayJobCompleteRequest(BaseModel):
+    # AI 결과
+    overlap_score: float | None = None
+    decision: Literal["AUTO", "REVIEW", "UNKNOWN"]
+    result_json: dict[str, Any]
+    error: str | None = None
