@@ -37,24 +37,21 @@ class CentralClient:
         
         반환:
           - job dict
-          - 없으면 None (HTTP 204)
         """
         url = f"{self.base}/api/v1/inference/tray/jobs/claim"
         try:
             with httpx.Client(timeout=timeout_s) as c:
                 r = c.post(url, headers=self._headers(), json={"worker_id": worker_id})
-            if r.status_code == 204:
-                return None
             r.raise_for_status()
-            return r.json()
+            data = r.json()
 
-            # 표준: {"job": ...}
+            # 표준: {"job": TrayJobOut | None}
             if isinstance(data, dict) and "job" in data:
                 job = data.get("job")
                 return job if isinstance(job, dict) else None
 
             # 하위호환: job dict를 바로 반환하는 구현
-            return data if isinstance(data, dict) else None            
+            return data if isinstance(data, dict) else None
         except Exception as e:
             raise CentralClientError(f"claim_tray_job failed: {e}") from e
 
@@ -95,7 +92,7 @@ class CentralClient:
           "created_at": "..."
         }
         """
-        url = f"{self.base}/api/v1/prototypes/active"
+        url = f"{self.base}/api/v1/prototype-sets/active"
         try:
             with httpx.Client(timeout=timeout_s) as c:
                 r = c.get(url, headers=self._headers())
