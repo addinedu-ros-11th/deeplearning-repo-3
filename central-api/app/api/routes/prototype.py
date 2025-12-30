@@ -1,83 +1,74 @@
-# from datetime import datetime, timezone
-# from fastapi import APIRouter, Depends, HTTPException
-# from sqlalchemy.orm import Session
-# from app.api.deps import get_db
-# from app.core.security import require_admin_key
-# from app.db.models import PrototypeSet, PrototypeSetStatus, MenuItem, MenuItemPrototype
-# from app.schemas.prototype import (
-#     PrototypeSetCreate, PrototypeSetOut,
-#     MenuItemPrototypeCreate, MenuItemPrototypeOut,
-#     ActivatePrototypeSetIn, ActivePrototypeRow
-# )
+from __future__ import annotations
 
-# router = APIRouter(dependencies=[Depends(require_admin_key)])
+from datetime import datetime, timezone
 
-# def utcnow():
-#     return datetime.now(timezone.utc).replace(tzinfo=None)
+from fastapi import APIRouter, Depends, HTTPException
+from sqlalchemy.orm import Session
 
-# @router.get("/prototype-sets", response_model=list[PrototypeSetOut])
-# def list_sets(db: Session = Depends(get_db)):
-#     return db.query(PrototypeSet).order_by(PrototypeSet.prototype_set_id.desc()).all()
+from app.api.deps import get_db
+from app.core.security import require_admin_key
+from app.db.models import PrototypeSet, PrototypeSetStatus
+from app.schemas.prototype import (
+    ActivatePrototypeSetIn,
+    ActivatePrototypeSetOut,
+    ActivePrototypeSetOut,
+    PrototypeSetCreate,
+    PrototypeSetOut,
+)
 
-# @router.post("/prototype-sets", response_model=PrototypeSetOut)
-# def create_set(body: PrototypeSetCreate, db: Session = Depends(get_db)):
-#     s = PrototypeSet(status=PrototypeSetStatus(body.status), notes=body.notes, created_at=utcnow())
-#     db.add(s)
-#     db.commit()
-#     db.refresh(s)
-#     return s
+router = APIRouter(dependencies=[Depends(require_admin_key)])
 
-# @router.post("/prototype-sets/activate")
-# def activate_set(body: ActivatePrototypeSetIn, db: Session = Depends(get_db)):
-#     target = db.query(PrototypeSet).filter(PrototypeSet.prototype_set_id == body.prototype_set_id).first()
-#     if not target:
-#         raise HTTPException(status_code=404, detail="prototype_set not found")
 
-#     db.query(PrototypeSet).update({PrototypeSet.status: PrototypeSetStatus.INACTIVE})
-#     target.status = PrototypeSetStatus.ACTIVE
+def utcnow() -> datetime:
+    return datetime.now(timezone.utc).replace(tzinfo=None)
 
-#     db.query(MenuItemPrototype).update({MenuItemPrototype.is_active: False})
-#     db.query(MenuItemPrototype).filter(MenuItemPrototype.prototype_set_id == target.prototype_set_id).update(
-#         {MenuItemPrototype.is_active: True}
-#     )
 
-#     db.commit()
-#     return {"ok": True, "active_prototype_set_id": target.prototype_set_id}
+@router.get("/prototype-sets", response_model=list[PrototypeSetOut])
+def list_sets(db: Session = Depends(get_db)):
+    return db.query(PrototypeSet).order_by(PrototypeSet.prototype_set_id.desc()).all()
 
-# @router.post("/menu-item-prototypes", response_model=list[MenuItemPrototypeOut])
-# def create_prototypes(items: list[MenuItemPrototypeCreate], db: Session = Depends(get_db)):
-#     out = []
-#     for it in items:
-#         if not db.query(MenuItem).filter(MenuItem.item_id == it.item_id).first():
-#             raise HTTPException(status_code=400, detail=f"menu_item not found: {it.item_id}")
-#         if not db.query(PrototypeSet).filter(PrototypeSet.prototype_set_id == it.prototype_set_id).first():
-#             raise HTTPException(status_code=400, detail=f"prototype_set not found: {it.prototype_set_id}")
 
-#         p = MenuItemPrototype(
-#             item_id=it.item_id,
-#             prototype_set_id=it.prototype_set_id,
-#             image_gcs_uri=it.image_gcs_uri,
-#             embedding_gcs_uri=it.embedding_gcs_uri,
-#             is_active=bool(it.is_active),
-#             created_at=utcnow(),
-#         )
-#         db.add(p)
-#         out.append(p)
+@router.post("/prototype-sets", response_model=PrototypeSetOut)
+def create_set(body: PrototypeSetCreate, db: Session = Depends(get_db)):
+    s = PrototypeSet(
+        status=PrototypeSetStatus(body.status),
+        notes=body.notes,
+        created_at=utcnow(),
+        index_npy_gcs_uri=body.index_npy_gcs_uri,
+        index_meta_gcs_uri=body.index_meta_gcs_uri,
+    )
+    db.add(s)
+    db.commit()
+    db.refresh(s)
+    return s
 
-#     db.commit()
-#     for p in out:
-#         db.refresh(p)
-#     return out
 
-# @router.get("/prototypes/active", response_model=list[ActivePrototypeRow])
-# def list_active_prototypes(db: Session = Depends(get_db)):
-#     active_set = db.query(PrototypeSet).filter(PrototypeSet.status == PrototypeSetStatus.ACTIVE).first()
-#     if not active_set:
-#         return []
-#     rows = (
-#         db.query(MenuItemPrototype.item_id, MenuItemPrototype.embedding_gcs_uri)
-#         .filter(MenuItemPrototype.prototype_set_id == active_set.prototype_set_id)
-#         .filter(MenuItemPrototype.is_active == True)  # noqa
-#         .all()
-#     )
-#     return [ActivePrototypeRow(item_id=r[0], embedding_gcs_uri=r[1]) for r in rows]
+@router.post("/prototype-sets/activate", response_model=ActivatePrototypeSetOut)
+def activate_set(body: ActivatePrototypeSetIn, db: Session = Depends(get_db)):
+    target = (
+        db.query(PrototypeSet)
+        .filter(PrototypeSet.prototype_set_id == body.prototype_set_id)
+        .first()
+    )
+    if not target:
+        raise HTTPException(status_code=404, detail="prototype_set not found")
+
+    # 단일 ACTIVE 정책
+    db.query(PrototypeSet).update({PrototypeSet.status: PrototypeSetStatus.INACTIVE})
+    target.status = PrototypeSetStatus.ACTIVE
+
+    db.commit()
+    return ActivatePrototypeSetOut(ok=True, active_prototype_set_id=int(target.prototype_set_id))
+
+
+@router.get("/prototype-sets/active", response_model=ActivePrototypeSetOut)
+def get_active_set(db: Session = Depends(get_db)):
+    active = (
+        db.query(PrototypeSet)
+        .filter(PrototypeSet.status == PrototypeSetStatus.ACTIVE)
+        .order_by(PrototypeSet.created_at.desc())
+        .first()
+    )
+    if not active:
+        raise HTTPException(status_code=404, detail="active prototype_set not found")
+    return active
