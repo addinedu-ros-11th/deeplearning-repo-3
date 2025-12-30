@@ -96,7 +96,7 @@ def _augment_instances_with_center_and_label(db: Session, result_json: dict[str,
     name_map: dict[int, str] = {}
     if ids:
         rows = db.query(MenuItem).filter(MenuItem.item_id.in_(list(ids))).all()
-        name_map = {int(r.item_id): r.name for r in rows}
+        name_map = {int(r.item_id): r.name_kor for r in rows}
 
     for inst in instances:
         if not isinstance(inst, dict):
