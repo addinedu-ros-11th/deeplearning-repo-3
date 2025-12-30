@@ -13,6 +13,7 @@ from PIL import Image
 from app.core.config import settings
 from app.services.prototype_index import PrototypeIndex, load_index
 from app.services.central_client import CentralClient
+from app.services.gcs_utils import download_to
 
 
 def _ensure_dir(path: str) -> None:
@@ -218,6 +219,23 @@ class InferenceEngine:
 
     def infer_cctv(self, payload: dict[str, Any]) -> dict[str, Any]:
         now = datetime.now(timezone.utc)
+        
+        clip_gcs_uri = payload.get("clip_gcs_uri")
+        frames_b64 = payload.get("frames_b64")
+        
+        # clip_gcs_uri가 제공된 경우 다운로드하여 처리
+        local_clip_path = None
+        if clip_gcs_uri:
+            try:
+                cache_dir = os.path.join(getattr(settings, "CACHE_DIR", "/tmp"), "cctv_clips")
+                _ensure_dir(cache_dir)
+                timestamp = int(now.timestamp() * 1000)
+                local_clip_path = os.path.join(cache_dir, f"clip_{timestamp}.mp4")
+                download_to(clip_gcs_uri, local_clip_path)
+            except Exception as e:
+                # 다운로드 실패 시 빈 결과 반환
+                return {"events": [], "error": f"Failed to download clip: {e}"}
+        
         if self.mock:
             return {
                 "events": [
@@ -226,11 +244,39 @@ class InferenceEngine:
                         "confidence": 0.88,
                         "started_at": (now - timedelta(seconds=2)).replace(tzinfo=None).isoformat(sep=" "),
                         "ended_at": now.replace(tzinfo=None).isoformat(sep=" "),
-                        "meta_json": {"mode": "mock"},
+                        "meta_json": {"mode": "mock", "clip_gcs_uri": clip_gcs_uri},
                     }
-                ]
+                ],
             }
+        
+        # TODO: 실제 비디오 처리 로직 구현
+        # - local_clip_path 또는 frames_b64를 사용하여 이벤트 감지
+        # - OpenCV로 비디오 읽기 및 프레임 처리
+        
+        # 임시 파일 정리
+        if local_clip_path and os.path.exists(local_clip_path):
+            try:
+                os.remove(local_clip_path)
+            except Exception:
+                pass
+        
         return {"events": []}
+
+    # def infer_cctv(self, payload: dict[str, Any]) -> dict[str, Any]:
+    #     now = datetime.now(timezone.utc)
+    #     if self.mock:
+    #         return {
+    #             "events": [
+    #                 {
+    #                     "event_type": "FALL",
+    #                     "confidence": 0.88,
+    #                     "started_at": (now - timedelta(seconds=2)).replace(tzinfo=None).isoformat(sep=" "),
+    #                     "ended_at": now.replace(tzinfo=None).isoformat(sep=" "),
+    #                     "meta_json": {"mode": "mock"},
+    #                 }
+    #             ]
+    #         }
+    #     return {"events": []}
 
     # -----------------------------
     # YOLO seg -> crop -> embedding -> kNN -> gating
