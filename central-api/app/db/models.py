@@ -112,7 +112,6 @@ class MenuItem(Base):
     active = Column(Boolean, nullable=False)
     created_at = Column(DateTime, nullable=False)
 
-    prototypes = relationship("MenuItemPrototype", back_populates="menu_item")
     order_lines = relationship("OrderLine", back_populates="menu_item")
 
     category = relationship("Category", back_populates="menu_items")
