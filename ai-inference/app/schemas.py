@@ -40,9 +40,9 @@ class CctvInferRequest(BaseModel):
     @model_validator(mode="after")
     def _validate(self):
         if not self.clip_gcs_uri and not self.frames_b64:
-            raise ValueError("Either clip_local_path or frames_b64 is required")
+            raise ValueError("Either clip_gcs_uri or frames_b64 is required")
         if self.clip_gcs_uri and self.frames_b64:
-            raise ValueError("Provide only one of clip_local_path or frames_b64")
+            raise ValueError("Provide only one of clip_gcs_uri or frames_b64")
         return self
 
 
