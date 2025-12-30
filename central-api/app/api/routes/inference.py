@@ -47,6 +47,10 @@ def utcnow_naive() -> datetime:
     # DB는 UTC naive로 통일(정책)
     return datetime.now(timezone.utc).replace(tzinfo=None)
 
+def _strip_data_url_prefix(b64: str) -> str:
+    if b64 and b64.strip().startswith("data:") and "," in b64:
+        return b64.split(",", 1)[1]
+    return b64
 
 def _compute_center_from_bbox(bbox: list[float] | list[int]) -> list[float] | None:
     if not isinstance(bbox, list) or len(bbox) != 4:
