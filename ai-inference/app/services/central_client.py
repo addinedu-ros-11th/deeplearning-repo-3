@@ -16,13 +16,13 @@ class CentralClient:
     - 모든 요청은 ADMIN_KEY 헤더로 보호(데모 정책)
     """
     def __init__(self) -> None:
-        if not settings.CENTRAL_BASE_URL:
-            raise CentralClientError("CENTRAL_BASE_URL is not set")
-        if not settings.CENTRAL_ADMIN_KEY:
-            raise CentralClientError("CENTRAL_ADMIN_KEY is not set")
+        if not settings.DATABASE_URL:
+            raise CentralClientError("DATABASE_URL is not set")
+        if not settings.ADMIN_KEY:
+            raise CentralClientError("ADMIN_KEY is not set")
 
-        self.base = settings.CENTRAL_BASE_URL.rstrip("/")
-        self.key = settings.CENTRAL_ADMIN_KEY
+        self.base = settings.DATABASE_URL.rstrip("/")
+        self.key = settings.ADMIN_KEY
 
     def _headers(self) -> dict[str, str]:
         h = {"Content-Type": "application/json"}
