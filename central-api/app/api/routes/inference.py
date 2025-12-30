@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+import base64
+import uuid
 from datetime import datetime, timezone
 from typing import Any
 
@@ -9,6 +11,9 @@ from sqlalchemy.orm import Session
 from app.api.deps import get_db
 from app.core.security import require_admin_key
 from app.db.models import (
+    InferenceJob,
+    InferenceJobStatus,
+    InferenceJobType,
     TraySession,
     TraySessionStatus,
     RecognitionRun,
@@ -21,7 +26,18 @@ from app.db.models import (
     MenuItem,
 )
 
-from app.schemas.inference import TrayIngestRequest, TrayIngestResponse, TrayLatestResponse
+from app.schemas.inference import (
+    TrayIngestRequest,
+    TrayIngestResponse,
+    TrayLatestResponse,
+    TrayJobCreate,
+    TrayJobOut,
+    TrayJobClaimRequest,
+    TrayJobClaimResponse,
+    TrayJobCompleteRequest,
+)
+
+from app.services.gcs import upload_bytes
 
 
 router = APIRouter(dependencies=[Depends(require_admin_key)])
@@ -110,12 +126,22 @@ def ingest_tray_inference(
     db: Session = Depends(get_db),
 ):
     """
-    (중요) 예전에는 Central이 AI를 호출했지만,
-    이제는 로컬 AI/에이전트가 만든 결과를 Central이 저장(ingest)한다.
+    (중요) Central은 추론을 "직접 호출"하지 않는다.
+    현재 운영 흐름(B안)은 Central Job Queue를 경유한다.
 
-    - session이 없으면 (store_code, device_code)로 자동 생성 가능
-    - recognition_run 생성
-    - decision이 REVIEW/UNKNOWN이면 review OPEN 생성(없을 때만)
+    - PyQt/Kiosk: /inference/tray/jobs 로 추론 요청(Job) 생성
+      * frame_b64를 보내면 Central이 GCS에 업로드하고 frame_gcs_uri를 확정
+      * 또는 이미 업로드된 frame_gcs_uri로 Job 생성 가능
+
+    - AI Worker(로컬 서버 #2): /inference/tray/jobs/claim 으로 PENDING Job을 Polling(Pull)
+      * frame_gcs_uri의 이미지를 내려받아 로컬에서 추론 수행
+
+    - 완료 업로드: /inference/tray/jobs/{job_id}/complete 로 결과를 Central에 저장
+      * RecognitionRun 생성
+      * decision이 REVIEW/UNKNOWN이면 Review OPEN 생성(세션당 1개 OPEN 정책)
+
+    이 엔드포인트(/tray-sessions/{session_uuid}/infer)는
+    '결과를 바로 ingest'하는 직접 업로드 경로(레거시/디버그용)로 유지할 수 있다.
     """
     s = db.query(TraySession).filter(TraySession.session_uuid == session_uuid).first()
 
@@ -255,3 +281,203 @@ def get_latest_tray_inference(session_uuid: str, db: Session = Depends(get_db)):
         overlap_score=last.overlap_score,
         result_json=last.result_json or {},
     )
+
+
+# =====================
+# Job Queue (TRAY)
+# - PyQt/Kiosk: job 생성(이미지 b64 or gcs_uri)
+# - AI Worker(로컬 GPU): job 클레임 -> 추론 -> complete로 결과 업로드
+# =====================
+def _ensure_tray_session(db: Session, store_code: str, device_code: str, session_uuid: str | None) -> TraySession:
+    # store/device lookup
+    st = db.query(Store).filter(Store.store_code == store_code).first()
+    if not st:
+        raise HTTPException(status_code=404, detail="store not found")
+
+    dv = (
+        db.query(Device)
+        .filter(Device.store_id == st.store_id)
+        .filter(Device.device_code == device_code)
+        .filter(Device.device_type == DeviceType.CHECKOUT)
+        .first()
+    )
+    if not dv:
+        raise HTTPException(status_code=404, detail="checkout device not found")
+
+    # get or create session
+    if not session_uuid:
+        session_uuid = str(uuid.uuid4())
+
+    s = db.query(TraySession).filter(TraySession.session_uuid == session_uuid).first()
+    if s:
+        return s
+
+    s = TraySession(
+        session_uuid=session_uuid,
+        store_id=st.store_id,
+        checkout_device_id=dv.device_id,
+        status=TraySessionStatus.ACTIVE,
+        attempt_limit=3,
+        started_at=utcnow_naive(),
+        ended_at=None,
+        end_reason=None,
+        created_at=utcnow_naive(),
+    )
+    db.add(s)
+    db.commit()
+    db.refresh(s)
+    return s
+
+
+def _next_attempt_no(db: Session, session_id: int) -> int:
+    last = (
+        db.query(RecognitionRun)
+        .filter(RecognitionRun.session_id == session_id)
+        .order_by(RecognitionRun.attempt_no.desc())
+        .first()
+    )
+    return 1 if not last else (int(last.attempt_no) + 1)
+
+
+@router.post("/inference/tray/jobs", response_model=TrayJobOut)
+def create_tray_job(body: TrayJobCreate, db: Session = Depends(get_db)):
+    """키오스크가 1장 프레임을 등록하고, AI Worker가 가져갈 수 있는 Job 생성."""
+    if not settings.GCS_BUCKET_TRAY and not body.frame_gcs_uri:
+        raise HTTPException(status_code=500, detail="GCS_BUCKET_TRAY is not set")
+
+    # session 확보
+    s = _ensure_tray_session(db, body.store_code, body.device_code, body.session_uuid)
+    attempt_no = _next_attempt_no(db, s.session_id)
+    if attempt_no > int(s.attempt_limit):
+        raise HTTPException(status_code=400, detail="attempt limit exceeded")
+
+    # frame_gcs_uri 확보
+    frame_gcs_uri = body.frame_gcs_uri
+    if not frame_gcs_uri:
+        raw_b = base64.b64decode(_strip_data_url_prefix(body.frame_b64 or ""))
+        # object name
+        ts = int(datetime.now(timezone.utc).timestamp() * 1000)
+        object_name = f"tray/{body.store_code}/{body.device_code}/{s.session_uuid}/attempt_{attempt_no}/{ts}.jpg"
+        frame_gcs_uri = upload_bytes(settings.GCS_BUCKET_TRAY, object_name, raw_b, content_type="image/jpeg")
+
+    j = InferenceJob(
+        job_type=InferenceJobType.TRAY,
+        status=InferenceJobStatus.PENDING,
+        store_id=s.store_id,
+        device_id=s.checkout_device_id,
+        session_id=s.session_id,
+        attempt_no=attempt_no,
+        frame_gcs_uri=frame_gcs_uri,
+        result_json=None,
+        decision=None,
+        run_id=None,
+        worker_id=None,
+        error=None,
+        created_at=utcnow_naive(),
+        claimed_at=None,
+        completed_at=None,
+    )
+    db.add(j)
+    db.commit()
+    db.refresh(j)
+    return j
+
+
+@router.post("/inference/tray/jobs/claim", response_model=TrayJobClaimResponse)
+def claim_next_tray_job(body: TrayJobClaimRequest, db: Session = Depends(get_db)):
+    """AI Worker가 가장 오래된 PENDING job을 클레임."""
+    # NOTE: 데모 단일 워커 기준. 다중 워커면 for_update(skip_locked=True) 권장.
+    j = (
+        db.query(InferenceJob)
+        .filter(InferenceJob.job_type == InferenceJobType.TRAY)
+        .filter(InferenceJob.status == InferenceJobStatus.PENDING)
+        .order_by(InferenceJob.created_at.asc())
+        .first()
+    )
+    if not j:
+        return TrayJobClaimResponse(job=None)
+
+    j.status = InferenceJobStatus.CLAIMED
+    j.worker_id = body.worker_id
+    j.claimed_at = utcnow_naive()
+    db.commit()
+    db.refresh(j)
+    return TrayJobClaimResponse(job=j)
+
+
+@router.get("/inference/tray/jobs/{job_id}", response_model=TrayJobOut)
+def get_tray_job(job_id: int, db: Session = Depends(get_db)):
+    j = db.query(InferenceJob).filter(InferenceJob.job_id == job_id).first()
+    if not j:
+        raise HTTPException(status_code=404, detail="job not found")
+    return j
+
+
+@router.post("/inference/tray/jobs/{job_id}/complete", response_model=TrayJobOut)
+def complete_tray_job(job_id: int, body: TrayJobCompleteRequest, db: Session = Depends(get_db)):
+    j = db.query(InferenceJob).filter(InferenceJob.job_id == job_id).first()
+    if not j:
+        raise HTTPException(status_code=404, detail="job not found")
+    if j.status not in (InferenceJobStatus.CLAIMED, InferenceJobStatus.PENDING):
+        raise HTTPException(status_code=400, detail=f"job is not completable: {j.status}")
+
+    s = db.query(TraySession).filter(TraySession.session_id == j.session_id).first()
+    if not s:
+        raise HTTPException(status_code=404, detail="session not found")
+
+    # 결과 저장(RecognitionRun/Review)
+    dec = body.decision
+    if dec not in ("AUTO", "REVIEW", "UNKNOWN"):
+        raise HTTPException(status_code=400, detail="invalid decision")
+
+    run = RecognitionRun(
+        session_id=s.session_id,
+        attempt_no=int(j.attempt_no),
+        overlap_score=body.overlap_score,
+        decision=DecisionState(dec),
+        result_json=body.result_json or {},
+        created_at=utcnow_naive(),
+    )
+    db.add(run)
+    db.commit()
+    db.refresh(run)
+
+    if dec in ("REVIEW", "UNKNOWN"):
+        open_review = (
+            db.query(Review)
+            .filter(Review.session_id == s.session_id)
+            .filter(Review.status == ReviewStatus.OPEN)
+            .first()
+        )
+        if not open_review:
+            try:
+                insts = (body.result_json or {}).get("instances") or []
+                top_k_compact = insts[0].get("top_k") if insts else None
+            except Exception:
+                top_k_compact = None
+
+            r = Review(
+                session_id=s.session_id,
+                run_id=run.run_id,
+                status=ReviewStatus.OPEN,
+                reason=dec,
+                top_k_json=top_k_compact,
+                confirmed_items_json=None,
+                created_at=utcnow_naive(),
+                resolved_at=None,
+                resolved_by=None,
+            )
+            db.add(r)
+            db.commit()
+
+    # job 갱신
+    j.status = InferenceJobStatus.DONE if not body.error else InferenceJobStatus.FAILED
+    j.completed_at = utcnow_naive()
+    j.decision = DecisionState(dec)
+    j.run_id = run.run_id
+    j.result_json = body.result_json or {}
+    j.error = body.error
+
+    db.commit()
+    db.refresh(j)
+    return j
