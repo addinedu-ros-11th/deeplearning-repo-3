@@ -8,6 +8,8 @@ from typing import Any
 from fastapi import APIRouter, Depends, HTTPException
 from sqlalchemy.orm import Session
 
+from app.core.config import settings
+
 from app.api.deps import get_db
 from app.core.security import require_admin_key
 from app.db.models import (
