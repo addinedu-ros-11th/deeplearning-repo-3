@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import base64
 import io
+import logging
 import os
 from datetime import datetime, timezone, timedelta
 from typing import Any, Optional, Tuple
@@ -11,6 +12,10 @@ import numpy as np
 from PIL import Image
 
 from app.core.config import settings
+
+# 로거 설정
+scanner_logger = logging.getLogger("scanner")
+cctv_logger = logging.getLogger("cctv")
 from app.services.prototype_index import PrototypeIndex, load_index
 from app.services.central_client import CentralClient
 from app.services.gcs_utils import download_to
@@ -34,42 +39,9 @@ def _env_float(name: str, default: float) -> float:
         return default
 
 
-    def _resolve_yolo_local_path(self) -> str | None:
-        # 1) 로컬 경로 우선
-        yolo_path = (
-            os.getenv("YOLO_MODEL_PATH", "").strip()
-            or str(getattr(settings, "YOLO_MODEL_PATH", "") or "").strip()
-        )
-        if yolo_path:
-            return yolo_path
-
-        # 2) URI로 받으면 캐시에 내려받음
-        yolo_uri = (
-            os.getenv("YOLO_MODEL_URI", "").strip()
-            or str(getattr(settings, "YOLO_MODEL_URI", "") or "").strip()
-        )
-        if not yolo_uri:
-            return None
-
-        cache_dir = os.path.join(getattr(settings, "CACHE_DIR", "/tmp"), "models")
-        _ensure_dir(cache_dir)
-
-        parsed = urlparse(yolo_uri)
-        filename = os.path.basename(parsed.path) or "yolo.pt"
-        local_path = os.path.join(cache_dir, filename)
-
-        # 이미 있으면 재사용
-        if os.path.exists(local_path) and os.path.getsize(local_path) > 0:
-            return local_path
-
-        # gs:// 또는 https:// 등 다운로드
-        download_to(yolo_uri, local_path)
-        return local_path
-
-
 class InferenceEngine:
     def __init__(self) -> None:
-        self.mock = bool(getattr(settings, "AI_MOCK_MODE", False))
+        self.mock = bool(getattr(settings, "AI_MOCK_MODE", 1))
 
         self.prototype_index: PrototypeIndex | None = None
         self.prototype_set_id: int | None = None
@@ -89,6 +61,40 @@ class InferenceEngine:
 
         self.use_job_queue = os.getenv("AI_USE_JOB_QUEUE", "1").strip() == "1"
 
+    def _resolve_yolo_local_path(self) -> str | None:
+        """YOLO 모델 경로 결정: 로컬 우선, 없으면 GCS에서 다운로드"""
+        # 1) 로컬 경로 우선
+        yolo_path = (
+            os.getenv("YOLO_MODEL_PATH", "").strip()
+            or str(getattr(settings, "YOLO_MODEL_PATH", "") or "").strip()
+        )
+        if yolo_path and os.path.exists(yolo_path):
+            return yolo_path
+
+        # 2) URI로 받으면 캐시에 내려받음
+        yolo_uri = (
+            os.getenv("YOLO_MODEL_URI", "").strip()
+            or str(getattr(settings, "YOLO_MODEL_GCS_URI", "") or "").strip()
+        )
+        if not yolo_uri:
+            return None
+
+        cache_dir = os.path.join(getattr(settings, "CACHE_DIR", "/tmp"), "models")
+        _ensure_dir(cache_dir)
+
+        parsed = urlparse(yolo_uri)
+        filename = os.path.basename(parsed.path) or "yolo.pt"
+        local_path = os.path.join(cache_dir, filename)
+
+        # 이미 있으면 재사용
+        if os.path.exists(local_path) and os.path.getsize(local_path) > 0:
+            scanner_logger.info(f"[scanner] YOLO 모델 캐시 사용: {local_path}")
+            return local_path
+
+        # gs:// 또는 https:// 등 다운로드
+        scanner_logger.info(f"[scanner] YOLO 모델 다운로드: {yolo_uri}")
+        download_to(yolo_uri, local_path)
+        return local_path
 
     def startup_load(self) -> None:
         if self.mock:
@@ -119,7 +125,9 @@ class InferenceEngine:
             if yolo_local:
                 from ultralytics import YOLO  # type: ignore
                 self.yolo = YOLO(yolo_local)
-        except Exception:
+                scanner_logger.info(f"[scanner] YOLO 모델 로드 완료: {yolo_local}")
+        except Exception as e:
+            scanner_logger.error(f"[scanner] YOLO 모델 로드 실패: {e}")
             self.yolo = None
 
     def infer_tray(self, payload: dict[str, Any]) -> dict[str, Any]:
@@ -212,6 +220,10 @@ class InferenceEngine:
                     "error": "no detections",
                 },
             }
+            scanner_logger.warning(
+                "[scanner] 미감지: session=%s, reason=no detections",
+                session_uuid,
+            )
             if not self.use_job_queue:
                 self._try_ingest_to_central(session_uuid, store_code, device_code, attempt_no, res)
             return res
@@ -250,6 +262,23 @@ class InferenceEngine:
                 "items": items,
             },
         }
+
+        # 추론 결과 로깅
+        if decision in ("AUTO", "REVIEW"):
+            scanner_logger.info(
+                "[scanner] 추론 성공: session=%s, decision=%s, instances=%d, items=%d",
+                session_uuid,
+                decision,
+                len(instances),
+                len(items),
+            )
+        elif decision == "UNKNOWN":
+            scanner_logger.warning(
+                "[scanner] 미감지: session=%s, reason=all instances unknown, instances=%d",
+                session_uuid,
+                len(instances),
+            )
+
         if not self.use_job_queue:
             self._try_ingest_to_central(session_uuid, store_code, device_code, attempt_no, res)
         return res
@@ -279,7 +308,7 @@ class InferenceEngine:
         
         try:
             if self.mock:
-                return {
+                mock_result = {
                     "events": [
                         {
                             "event_type": "FALL",
@@ -290,13 +319,29 @@ class InferenceEngine:
                         }
                     ],
                 }
-            
+                # 유의미한 이벤트 감지 시 로깅
+                if mock_result["events"]:
+                    cctv_logger.info(
+                        "[cctv] 이벤트 감지 성공: events=%d, types=%s",
+                        len(mock_result["events"]),
+                        [e["event_type"] for e in mock_result["events"]],
+                    )
+                return mock_result
+
             # TODO: 실제 비디오 처리 로직 구현
             # - clip_path_uri 또는 frames_b64를 사용하여 이벤트 감지
             # - OpenCV로 비디오 읽기 및 프레임 처리
             # - frames_b64가 제공된 경우 base64 디코딩하여 처리
-            
-            return {"events": []}
+
+            result = {"events": []}
+            # 유의미한 이벤트 감지 시 로깅
+            if result["events"]:
+                cctv_logger.info(
+                    "[cctv] 이벤트 감지 성공: events=%d, types=%s",
+                    len(result["events"]),
+                    [e["event_type"] for e in result["events"]],
+                )
+            return result
         finally:
             # 임시 파일 정리 (예외 발생 시에도 실행 보장)
             if local_clip_path and os.path.exists(local_clip_path):
