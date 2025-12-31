@@ -1,7 +1,16 @@
+from pathlib import Path
+from dotenv import load_dotenv
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
+# .env 파일의 절대 경로
+ENV_FILE = Path(__file__).resolve().parent.parent.parent / ".env"
+
+# python-dotenv로 직접 로드
+if ENV_FILE.exists():
+    load_dotenv(ENV_FILE, override=True)
+
 class Settings(BaseSettings):
-    model_config = SettingsConfigDict(env_file=".env", env_ignore_empty=True, extra="ignore")
+    model_config = SettingsConfigDict(extra="ignore")
 
     AI_ADMIN_KEY: str
     AI_MOCK_MODE: int = 1
