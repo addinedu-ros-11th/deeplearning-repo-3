@@ -15,6 +15,12 @@ class ReviewOut(ORMBase):
     created_at: datetime
     resolved_at: datetime | None = None
     resolved_by: str | None = None
+    store_name: str | None = None
+    device_code: str | None = None
+
+class ReviewCreate(BaseModel):
+    session_id: int
+    reason: str = "ADMIN_CALL"
 
 class ReviewUpdate(BaseModel):
     status: ReviewStatus
