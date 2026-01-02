@@ -34,6 +34,28 @@ def _env_float(name: str, default: float) -> float:
         return default
 
 
+class InferenceEngine:
+    def __init__(self) -> None:
+        self.mock = bool(getattr(settings, "AI_MOCK_MODE", False))
+
+        self.prototype_index: PrototypeIndex | None = None
+        self.prototype_set_id: int | None = None
+
+        # YOLO model (lazy/optional)
+        self.yolo = None
+
+        # env 정책
+        self.knn_topk = _env_int("KNN_TOPK", 5)
+        self.unknown_dist_th = _env_float("UNKNOWN_DIST_TH", 0.35)
+        self.margin_th = _env_float("MARGIN_TH", 0.03)
+
+        self.yolo_imgsz = _env_int("YOLO_IMGSZ", 640)
+        self.yolo_conf = _env_float("YOLO_CONF", 0.25)
+        self.yolo_iou = _env_float("YOLO_IOU", 0.7)
+        self.ai_device = os.getenv("AI_DEVICE", "cpu").strip() or "cpu"
+
+        self.use_job_queue = os.getenv("AI_USE_JOB_QUEUE", "1").strip() == "1"
+
     def _resolve_yolo_local_path(self) -> str | None:
         # 1) 로컬 경로 우선
         yolo_path = (
@@ -65,30 +87,6 @@ def _env_float(name: str, default: float) -> float:
         # gs:// 또는 https:// 등 다운로드
         download_to(yolo_uri, local_path)
         return local_path
-
-
-class InferenceEngine:
-    def __init__(self) -> None:
-        self.mock = bool(getattr(settings, "AI_MOCK_MODE", False))
-
-        self.prototype_index: PrototypeIndex | None = None
-        self.prototype_set_id: int | None = None
-
-        # YOLO model (lazy/optional)
-        self.yolo = None
-
-        # env 정책
-        self.knn_topk = _env_int("KNN_TOPK", 5)
-        self.unknown_dist_th = _env_float("UNKNOWN_DIST_TH", 0.35)
-        self.margin_th = _env_float("MARGIN_TH", 0.03)
-
-        self.yolo_imgsz = _env_int("YOLO_IMGSZ", 640)
-        self.yolo_conf = _env_float("YOLO_CONF", 0.25)
-        self.yolo_iou = _env_float("YOLO_IOU", 0.7)
-        self.ai_device = os.getenv("AI_DEVICE", "cpu").strip() or "cpu"
-
-        self.use_job_queue = os.getenv("AI_USE_JOB_QUEUE", "1").strip() == "1"
-
 
     def startup_load(self) -> None:
         if self.mock:
