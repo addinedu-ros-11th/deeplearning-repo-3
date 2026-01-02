@@ -41,7 +41,7 @@ def _env_float(name: str, default: float) -> float:
 
 class InferenceEngine:
     def __init__(self) -> None:
-        self.mock = bool(getattr(settings, "AI_MOCK_MODE", 1))
+        self.mock = bool(getattr(settings, "AI_MOCK_MODE", False))
 
         self.prototype_index: PrototypeIndex | None = None
         self.prototype_set_id: int | None = None
