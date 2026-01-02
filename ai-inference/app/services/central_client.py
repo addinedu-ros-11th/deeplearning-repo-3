@@ -125,3 +125,42 @@ class CentralClient:
         except Exception as e:
             raise CentralClientError(f"ingest_tray_result failed: {e}") from e
 
+    def ingest_cctv_event(
+        self,
+        *,
+        store_code: str,
+        device_code: str,
+        event_type: str,
+        confidence: float,
+        started_at: str,
+        ended_at: str,
+        clip_gcs_uri: str,
+        clip_start_at: str,
+        clip_end_at: str,
+        meta_json: dict[str, Any] | None = None,
+        status: str = "OPEN",
+        timeout_s: float = 10.0,
+    ) -> dict[str, Any]:
+        """CCTV 이벤트를 Central API에 저장"""
+        url = f"{self.base}/api/v1/stores/{store_code}/cctv/{device_code}/events"
+        payload = {
+            "event_type": event_type,
+            "confidence": confidence,
+            "status": status,
+            "started_at": started_at,
+            "ended_at": ended_at,
+            "meta_json": meta_json,
+            "clip": {
+                "clip_gcs_uri": clip_gcs_uri,
+                "clip_start_at": clip_start_at,
+                "clip_end_at": clip_end_at,
+            },
+        }
+        try:
+            with httpx.Client(timeout=timeout_s) as c:
+                r = c.post(url, headers=self._headers(), json=payload)
+            r.raise_for_status()
+            return r.json()
+        except Exception as e:
+            raise CentralClientError(f"ingest_cctv_event failed: {e}") from e
+

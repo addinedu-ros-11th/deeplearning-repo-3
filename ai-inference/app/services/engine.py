@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import base64
 import io
+import logging
 import os
 from datetime import datetime, timezone, timedelta
 from typing import Any
@@ -12,7 +13,8 @@ from PIL import Image
 from app.core.config import settings
 from app.services.prototype_index import PrototypeIndex, load_index
 from app.services.central_client import CentralClient
-
+from app.services.gcs_utils import upload_to_gcs
+from dotenv import load_dotenv
 import cv2
 import torch
 import torch.nn as nn
@@ -20,9 +22,13 @@ from torchvision import models, transforms
 from torchvision.models import ResNet50_Weights
 from ultralytics import YOLO
 
+import sys
+from preprocessing.violence_classification import ViolenceClassification
+
 def _ensure_dir(path: str) -> None:
     os.makedirs(path, exist_ok=True)
 
+load_dotenv()
 
 class InferenceEngine:
     def __init__(self) -> None:
@@ -34,9 +40,18 @@ class InferenceEngine:
         self.embed_tf = None
         self.device = "gpu"
 
+        self.violence_classifier: ViolenceClassification | None = None
+
     def startup_load(self) -> None:
         if self.mock:
             return
+
+        # CCTV 폭력 감지 모델 로드 (GCS에서)
+        try:
+            self.violence_classifier = ViolenceClassification()
+        except Exception as e:
+            logging.warning(f"ViolenceClassification 로드 실패: {e}")
+            self.violence_classifier = None
 
         # 이번 데모 정책: prototype은 로컬에서 관리 (Central/GCS에서 끌어오지 않음)
         if not settings.PROTOTYPE_INDEX_PATH:
@@ -181,12 +196,14 @@ class InferenceEngine:
         return res
 
     def infer_cctv(self, payload: dict[str, Any]) -> dict[str, Any]:
+        """CCTV 폭력 감지 추론"""
         now = datetime.now(timezone.utc)
+
         if self.mock:
             return {
                 "events": [
                     {
-                        "event_type": "FALL",
+                        "event_type": "VIOLENCE",
                         "confidence": 0.88,
                         "started_at": (now - timedelta(seconds=2)).replace(tzinfo=None).isoformat(sep=" "),
                         "ended_at": now.replace(tzinfo=None).isoformat(sep=" "),
@@ -194,7 +211,141 @@ class InferenceEngine:
                     }
                 ]
             }
-        return {"events": []}
+
+        if not self.violence_classifier:
+            logging.warning("폭력 감지 모델 로드 실패")
+            return {"events": [], "error": "violence_classifier not loaded"}
+
+        # 공통 변수
+        store_code = payload.get("store_code", "")
+        device_code = payload.get("device_code", "")
+        clip_local_path = payload.get("clip_local_path")
+        frames_b64 = payload.get("frames_b64")
+        GCS_BUCKET_CCTV = os.getenv("GCS_BUCKET_CCTV")
+
+        # 1. 입력에 따라 추론 실행
+        inference_result = self._run_violence_inference(clip_local_path, frames_b64, now)
+
+        if not inference_result["is_violence"]:
+            return {"events": []}
+
+        # 2. GCS 업로드
+        local_clip_path = inference_result["local_clip_path"]
+        gcs_uri = None
+
+        if local_clip_path and os.path.exists(local_clip_path):
+            timestamp = now.strftime("%Y%m%d_%H%M%S")
+            blob_name = f"cctv_violence_{timestamp}.mp4"
+            try:
+                gcs_uri = upload_to_gcs(local_clip_path, GCS_BUCKET_CCTV, blob_name)
+            except Exception as e:
+                logging.warning(f"GCS 업로드 실패: {e}")
+
+        # 3. 이벤트 데이터 생성
+        event_data = {
+            "event_type": "VIOLENCE",
+            "confidence": inference_result["confidence"],
+            "started_at": now.replace(tzinfo=None).isoformat(sep=" "),
+            "ended_at": now.replace(tzinfo=None).isoformat(sep=" "),
+            "meta_json": {
+                "mode": "real",
+                "clip_path": local_clip_path,
+                "gcs_uri": gcs_uri,
+                **inference_result["extra_meta"],
+            },
+        }
+
+        # 4. Central API에 이벤트 저장
+        if gcs_uri and store_code and device_code:
+            self._try_ingest_cctv_event(
+                store_code=store_code,
+                device_code=device_code,
+                event_data=event_data,
+                gcs_uri=gcs_uri,
+            )
+
+        return {"events": [event_data]}
+
+    def _run_violence_inference(
+        self,
+        clip_local_path: str | None,
+        frames_b64: list[str] | None,
+        now: datetime,
+    ) -> dict[str, Any]:
+        """입력 타입에 따라 폭력 감지 추론 실행"""
+        
+        # 비디오 파일 경로가 주어진 경우
+        if clip_local_path:
+            result = self.violence_classifier.predict_video(
+                clip_local_path,
+                frame_interval=3,
+                save_clip=True,
+                output_dir=os.path.join(settings.CACHE_DIR, "violence_clips")
+            )
+
+            if result and result.get("is_violence"):
+                return {
+                    "is_violence": True,
+                    "confidence": float(result.get("max_probability", 0.0)),
+                    "local_clip_path": result.get("clip_path"),
+                    "extra_meta": {
+                        "source": "video_file",
+                        "avg_probability": float(result.get("avg_probability", 0.0)),
+                        "violence_ratio": float(result.get("violence_ratio", 0.0)),
+                    },
+                }
+
+        # base64 인코딩된 프레임들(실시간 웹캠)이 주어진 경우
+        elif frames_b64:
+            self.violence_classifier._reset()
+
+            decoded_frames = []
+            violence_detected = False
+            violence_result = None
+
+            for frame_b64 in frames_b64:
+                frame_bytes, frame_rgb = self._decode_frame({"frame_b64": frame_b64})
+                frame_bgr = cv2.cvtColor(frame_rgb, cv2.COLOR_RGB2BGR)
+                decoded_frames.append(frame_bgr)
+
+                result = self.violence_classifier.process_frame(frame_bgr)
+
+                if result.get("is_violence") and not violence_detected:
+                    violence_detected = True
+                    violence_result = result
+
+            if violence_detected and violence_result and decoded_frames:
+                # 프레임들을 비디오로 저장
+                timestamp = now.strftime("%Y%m%d_%H%M%S")
+                local_clip_dir = os.path.join(settings.CACHE_DIR, "violence_clips")
+                _ensure_dir(local_clip_dir)
+                local_clip_path = os.path.join(local_clip_dir, f"cctv_violence_{timestamp}.mp4")
+
+                h, w = decoded_frames[0].shape[:2]
+                fourcc = cv2.VideoWriter_fourcc(*'mp4v')
+                out = cv2.VideoWriter(local_clip_path, fourcc, 15, (w, h))
+                for f in decoded_frames:
+                    out.write(f)
+                out.release()
+
+                return {
+                    "is_violence": True,
+                    "confidence": float(violence_result.get("probability", 0.0)),
+                    "local_clip_path": local_clip_path,
+                    "extra_meta": {
+                        "source": "webcam_frames",
+                        "votes": violence_result.get("votes", 0),
+                        "total_votes": violence_result.get("total_votes", 0),
+                    },
+                }
+
+        # 폭력 미감지
+        return {
+            "is_violence": False,
+            "confidence": 0.0,
+            "local_clip_path": None,
+            "extra_meta": {},
+        }
 
     # -----------------------------
     # helpers
@@ -254,6 +405,32 @@ class InferenceEngine:
             )
         except Exception:
             pass
+
+    def _try_ingest_cctv_event(
+        self,
+        store_code: str,
+        device_code: str,
+        event_data: dict[str, Any],
+        gcs_uri: str,
+    ) -> None:
+        """CCTV 이벤트를 Central API에 저장 시도"""
+        try:
+            cc = CentralClient()
+            cc.ingest_cctv_event(
+                store_code=store_code,
+                device_code=device_code,
+                event_type=event_data.get("event_type", "VIOLENCE"),
+                confidence=event_data.get("confidence", 0.0),
+                started_at=event_data.get("started_at"),
+                ended_at=event_data.get("ended_at"),
+                clip_gcs_uri=gcs_uri,
+                clip_start_at=event_data.get("started_at"),
+                clip_end_at=event_data.get("ended_at"),
+                meta_json=event_data.get("meta_json"),
+                timeout_s=3.0,
+            )
+        except Exception as e:
+            logging.warning(f"Central API CCTV 이벤트 저장 실패: {e}")
 
     def _load_models(self) -> None:
         # device
