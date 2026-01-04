@@ -28,6 +28,9 @@ from app.util.preprocessing.auxiliary_tools import AuxiliaryTools
 
 import sys
 from YOLOwrapper import FallDownDetection as FallDownDetectionWrapper, YOLOWrapper
+from concurrent.futures import ThreadPoolExecutor, as_completed
+import asyncio
+
 sys.modules['__main__'].FallDownDetection = FallDownDetectionWrapper
 sys.modules['__main__'].YOLOWrapper = YOLOWrapper
 
@@ -256,51 +259,50 @@ class InferenceEngine:
         GCS_BUCKET_CCTV = os.getenv("GCS_BUCKET_CCTV")
 
         events = []
+        tasks = []
 
-        # 1. 폭력 감지
         if self.violence_classifier:
-            violence_result = self._run_violence_inference(clip_local_path, frames_b64, now)
-            if violence_result["is_violence"]:
-                event = self._process_cctv_event(
-                    event_type="VIOLENCE",
-                    inference_result=violence_result,
-                    now=now,
-                    store_code=store_code,
-                    device_code=device_code,
-                    gcs_bucket=GCS_BUCKET_CCTV,
-                )
-                if event:
-                    events.append(event)
+            tasks.append(("VIOLENCE", self._run_violence_inference, clip_local_path, frames_b64, now))
 
-        # 2. 낙상 감지
         if self.fall_detector:
-            fall_result = self._run_fall_inference(clip_local_path, frames_b64, now)
-            if fall_result["is_fall"]:
-                event = self._process_cctv_event(
-                    event_type="FALL",
-                    inference_result=fall_result,
-                    now=now,
-                    store_code=store_code,
-                    device_code=device_code,
-                    gcs_bucket=GCS_BUCKET_CCTV,
-                )
-                if event:
-                    events.append(event)
+            tasks.append(("FALL", self._run_fall_inference, clip_local_path, frames_b64, now))
 
-        # 3. 이동약자 감지
         if self.auxiliary_detector:
-            auxiliary_result = self._run_auxiliary_inference(clip_local_path, frames_b64, now)
-            if auxiliary_result["detected"]:
-                event = self._process_cctv_event(
-                    event_type="AUXILIARY",
-                    inference_result=auxiliary_result,
-                    now=now,
-                    store_code=store_code,
-                    device_code=device_code,
-                    gcs_bucket=GCS_BUCKET_CCTV,
-                )
-                if event:
-                    events.append(event)
+            tasks.append(("AUXILIARY", self._run_auxiliary_inference, clip_local_path, frames_b64, now))
+
+        with ThreadPoolExecutor(max_workers=3) as executor:
+            future_to_type = {
+                executor.submit(func, clip_local_path, frames_b64, now): event_type
+                for event_type, func, *args in tasks
+            }
+
+            for future in as_completed(future_to_type):
+                event_type = future_to_type[future]
+                try:
+                    result = future.result()
+
+                    if event_type == "VIOLENCE" and result["is_violence"]:
+                        detected = True
+                    elif event_type == "FALL" and result["is_fall"]:
+                        detected = True
+                    elif event_type == "AUXILIARY" and result["detected"]:
+                        detected = True
+                    else:
+                        detected = False
+                    
+                    if detected:
+                        event = self._process_cctv_event(
+                                event_type=event_type,
+                                inference_result=result,
+                                now=now,
+                                store_code=store_code,
+                                device_code=device_code,
+                                gcs_bucket=GCS_BUCKET_CCTV,
+                            )
+                        if event:
+                            events.append(event)
+                except Exception as e:
+                    logging.warning(f"{event_type} 추론 실패: {e}")
 
         return {"events": events}
 
