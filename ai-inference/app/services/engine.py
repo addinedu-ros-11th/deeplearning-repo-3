@@ -13,7 +13,7 @@ from PIL import Image
 from app.core.config import settings
 from app.services.prototype_index import PrototypeIndex, load_index
 from app.services.central_client import CentralClient
-from app.services.gcs_utils import upload_to_gcs
+from app.util.gcs_utils import upload_to_gcs
 from dotenv import load_dotenv
 import cv2
 import torch
@@ -22,8 +22,14 @@ from torchvision import models, transforms
 from torchvision.models import ResNet50_Weights
 from ultralytics import YOLO
 
+from app.util.preprocessing.violence_classification import ViolenceClassification
+from app.util.preprocessing.fall_down_detection import FallDownDetection
+from app.util.preprocessing.auxiliary_tools import AuxiliaryTools
+
 import sys
-from preprocessing.violence_classification import ViolenceClassification
+from YOLOwrapper import FallDownDetection as FallDownDetectionWrapper, YOLOWrapper
+sys.modules['__main__'].FallDownDetection = FallDownDetectionWrapper
+sys.modules['__main__'].YOLOWrapper = YOLOWrapper
 
 def _ensure_dir(path: str) -> None:
     os.makedirs(path, exist_ok=True)
@@ -41,6 +47,8 @@ class InferenceEngine:
         self.device = "gpu"
 
         self.violence_classifier: ViolenceClassification | None = None
+        self.fall_detector: FallDownDetection | None = None
+        self.auxiliary_detector: AuxiliaryTools | None = None
 
     def startup_load(self) -> None:
         if self.mock:
@@ -52,6 +60,20 @@ class InferenceEngine:
         except Exception as e:
             logging.warning(f"ViolenceClassification 로드 실패: {e}")
             self.violence_classifier = None
+
+        # CCTV 낙상 감지 모델 로드 (GCS에서)
+        try:
+            self.fall_detector = FallDownDetection()
+        except Exception as e:
+            logging.warning(f"FallDownDetection 로드 실패: {e}")
+            self.fall_detector = None
+
+        # CCTV Auxiliary 감지 모델 로드 (GCS에서)
+        try:
+            self.auxiliary_detector = AuxiliaryTools()
+        except Exception as e:
+            logging.warning(f"AuxiliaryTools 로드 실패: {e}")
+            self.auxiliary_detector = None
 
         # 이번 데모 정책: prototype은 로컬에서 관리 (Central/GCS에서 끌어오지 않음)
         if not settings.PROTOTYPE_INDEX_PATH:
@@ -196,7 +218,7 @@ class InferenceEngine:
         return res
 
     def infer_cctv(self, payload: dict[str, Any]) -> dict[str, Any]:
-        """CCTV 폭력 감지 추론"""
+        """CCTV 폭력/낙상 감지 추론"""
         now = datetime.now(timezone.utc)
 
         if self.mock:
@@ -208,13 +230,23 @@ class InferenceEngine:
                         "started_at": (now - timedelta(seconds=2)).replace(tzinfo=None).isoformat(sep=" "),
                         "ended_at": now.replace(tzinfo=None).isoformat(sep=" "),
                         "meta_json": {"mode": "mock"},
+                    },
+                    {
+                        "event_type": "FALL",
+                        "confidence": 0.92,
+                        "started_at": (now - timedelta(seconds=2)).replace(tzinfo=None).isoformat(sep=" "),
+                        "ended_at": now.replace(tzinfo=None).isoformat(sep=" "),
+                        "meta_json": {"mode": "mock"},
+                    },
+                    {
+                        "event_type": "AUXILIARY",
+                        "confidence": 0.90,
+                        "started_at": (now - timedelta(seconds=2)).replace(tzinfo=None).isoformat(sep=" "),
+                        "ended_at": now.replace(tzinfo=None).isoformat(sep=" "),
+                        "meta_json": {"mode": "mock"},
                     }
                 ]
             }
-
-        if not self.violence_classifier:
-            logging.warning("폭력 감지 모델 로드 실패")
-            return {"events": [], "error": "violence_classifier not loaded"}
 
         # 공통 변수
         store_code = payload.get("store_code", "")
@@ -223,39 +255,97 @@ class InferenceEngine:
         frames_b64 = payload.get("frames_b64")
         GCS_BUCKET_CCTV = os.getenv("GCS_BUCKET_CCTV")
 
-        # 1. 입력에 따라 추론 실행
-        inference_result = self._run_violence_inference(clip_local_path, frames_b64, now)
+        events = []
 
-        if not inference_result["is_violence"]:
-            return {"events": []}
+        # 1. 폭력 감지
+        if self.violence_classifier:
+            violence_result = self._run_violence_inference(clip_local_path, frames_b64, now)
+            if violence_result["is_violence"]:
+                event = self._process_cctv_event(
+                    event_type="VIOLENCE",
+                    inference_result=violence_result,
+                    now=now,
+                    store_code=store_code,
+                    device_code=device_code,
+                    gcs_bucket=GCS_BUCKET_CCTV,
+                )
+                if event:
+                    events.append(event)
 
-        # 2. GCS 업로드
-        local_clip_path = inference_result["local_clip_path"]
+        # 2. 낙상 감지
+        if self.fall_detector:
+            fall_result = self._run_fall_inference(clip_local_path, frames_b64, now)
+            if fall_result["is_fall"]:
+                event = self._process_cctv_event(
+                    event_type="FALL",
+                    inference_result=fall_result,
+                    now=now,
+                    store_code=store_code,
+                    device_code=device_code,
+                    gcs_bucket=GCS_BUCKET_CCTV,
+                )
+                if event:
+                    events.append(event)
+
+        # 3. 이동약자 감지
+        if self.auxiliary_detector:
+            auxiliary_result = self._run_auxiliary_inference(clip_local_path, frames_b64, now)
+            if auxiliary_result["detected"]:
+                event = self._process_cctv_event(
+                    event_type="AUXILIARY",
+                    inference_result=auxiliary_result,
+                    now=now,
+                    store_code=store_code,
+                    device_code=device_code,
+                    gcs_bucket=GCS_BUCKET_CCTV,
+                )
+                if event:
+                    events.append(event)
+
+        return {"events": events}
+
+    def _process_cctv_event(
+        self,
+        event_type: str,
+        inference_result: dict[str, Any],
+        now: datetime,
+        store_code: str,
+        device_code: str,
+        gcs_bucket: str,
+    ) -> dict[str, Any] | None:
+        """CCTV 이벤트 처리 (GCS 업로드 + Central API 저장)"""
+        local_clip_path = inference_result.get("local_clip_path")
+        confidence = inference_result.get("confidence", 0.0)
+        extra_meta = inference_result.get("extra_meta", {})
+
         gcs_uri = None
 
+        # GCS 업로드
         if local_clip_path and os.path.exists(local_clip_path):
             timestamp = now.strftime("%Y%m%d_%H%M%S")
-            blob_name = f"cctv_violence_{timestamp}.mp4"
+            # FALL -> fall_down 으로 변환 (일관성 유지)
+            event_name = "fall_down" if event_type == "FALL" else event_type.lower()
+            blob_name = f"cctv_{event_name}_{timestamp}.mp4"
             try:
-                gcs_uri = upload_to_gcs(local_clip_path, GCS_BUCKET_CCTV, blob_name)
+                gcs_uri = upload_to_gcs(local_clip_path, gcs_bucket, blob_name)
             except Exception as e:
-                logging.warning(f"GCS 업로드 실패: {e}")
+                logging.warning(f"GCS 업로드 실패 ({event_type}): {e}")
 
-        # 3. 이벤트 데이터 생성
+        # 이벤트 데이터 생성
         event_data = {
-            "event_type": "VIOLENCE",
-            "confidence": inference_result["confidence"],
+            "event_type": event_type,
+            "confidence": confidence,
             "started_at": now.replace(tzinfo=None).isoformat(sep=" "),
             "ended_at": now.replace(tzinfo=None).isoformat(sep=" "),
             "meta_json": {
                 "mode": "real",
                 "clip_path": local_clip_path,
                 "gcs_uri": gcs_uri,
-                **inference_result["extra_meta"],
+                **extra_meta,
             },
         }
 
-        # 4. Central API에 이벤트 저장
+        # Central API에 이벤트 저장
         if gcs_uri and store_code and device_code:
             self._try_ingest_cctv_event(
                 store_code=store_code,
@@ -264,7 +354,7 @@ class InferenceEngine:
                 gcs_uri=gcs_uri,
             )
 
-        return {"events": [event_data]}
+        return event_data
 
     def _run_violence_inference(
         self,
@@ -342,6 +432,230 @@ class InferenceEngine:
         # 폭력 미감지
         return {
             "is_violence": False,
+            "confidence": 0.0,
+            "local_clip_path": None,
+            "extra_meta": {},
+        }
+
+    def _run_fall_inference(
+        self,
+        clip_local_path: str | None,
+        frames_b64: list[str] | None,
+        now: datetime,
+    ) -> dict[str, Any]:
+        """입력 타입에 따라 낙상 감지 추론 실행"""
+
+        # 비디오 파일 경로가 주어진 경우
+        if clip_local_path:
+            cap = cv2.VideoCapture(clip_local_path)
+            if not cap.isOpened():
+                return {"is_fall": False, "confidence": 0.0, "local_clip_path": None, "extra_meta": {}}
+
+            fps = int(cap.get(cv2.CAP_PROP_FPS)) or 30
+            width = int(cap.get(cv2.CAP_PROP_FRAME_WIDTH))
+            height = int(cap.get(cv2.CAP_PROP_FRAME_HEIGHT))
+
+            frames_buffer = []
+            fall_detected = False
+            fall_frame = None
+
+            skip_frames = 0
+            while True:
+                ret, frame = cap.read()
+                if not ret:
+                    break
+                frames_buffer.append(frame.copy())
+
+                # 감지 후 10초 스킵
+                if skip_frames > 0:
+                    skip_frames -= 1
+                    continue
+
+                result = self.fall_detector.process_frame(frame)
+
+                if result.get("is_fall") and not fall_detected:
+                    fall_detected = True
+                    fall_frame = len(frames_buffer)
+                    skip_frames = fps * 10  # 10초 스킵
+
+            cap.release()
+
+            if fall_detected:
+                # 클립 저장 (감지 시점 ±5초)
+                logging.info(f"낙상 클립 저장 시작 - fall_frame: {fall_frame}, total_frames: {len(frames_buffer)}")
+                timestamp = now.strftime("%Y%m%d_%H%M%S")
+                local_clip_dir = os.path.join(settings.CACHE_DIR, "fall_clips")
+                logging.info(f"클립 저장 경로: {local_clip_dir}")
+                _ensure_dir(local_clip_dir)
+                local_clip_path = os.path.join(local_clip_dir, f"cctv_fall_down_{timestamp}.mp4")
+
+                clip_seconds = 5
+                start_frame = max(0, fall_frame - clip_seconds * fps)
+                end_frame = min(len(frames_buffer), fall_frame + clip_seconds * fps)
+                logging.info(f"클립 범위: {start_frame} ~ {end_frame} (fps: {fps})")
+
+                fourcc = cv2.VideoWriter_fourcc(*'mp4v')
+                out = cv2.VideoWriter(local_clip_path, fourcc, fps, (width, height))
+                for f in frames_buffer[start_frame:end_frame]:
+                    out.write(f)
+                out.release()
+                logging.info(f"낙상 클립 저장 완료: {local_clip_path}")
+
+                return {
+                    "is_fall": True,
+                    "confidence": 1.0,
+                    "local_clip_path": local_clip_path,
+                    "extra_meta": {"source": "video_file"},
+                }
+
+        # base64 인코딩된 프레임들(실시간 웹캠)이 주어진 경우
+        elif frames_b64:
+            decoded_frames = []
+            fall_detected = False
+
+            for frame_b64 in frames_b64:
+                frame_bytes, frame_rgb = self._decode_frame({"frame_b64": frame_b64})
+                frame_bgr = cv2.cvtColor(frame_rgb, cv2.COLOR_RGB2BGR)
+                decoded_frames.append(frame_bgr)
+
+                result = self.fall_detector.process_frame(frame_bgr)
+
+                if result.get("is_fall") and not fall_detected:
+                    fall_detected = True
+
+            if fall_detected and decoded_frames:
+                timestamp = now.strftime("%Y%m%d_%H%M%S")
+                local_clip_dir = os.path.join(settings.CACHE_DIR, "fall_clips")
+                _ensure_dir(local_clip_dir)
+                local_clip_path = os.path.join(local_clip_dir, f"cctv_fall_down_{timestamp}.mp4")
+
+                h, w = decoded_frames[0].shape[:2]
+                fourcc = cv2.VideoWriter_fourcc(*'mp4v')
+                out = cv2.VideoWriter(local_clip_path, fourcc, 15, (w, h))
+                for f in decoded_frames:
+                    out.write(f)
+                out.release()
+
+                return {
+                    "is_fall": True,
+                    "confidence": 1.0,
+                    "local_clip_path": local_clip_path,
+                    "extra_meta": {"source": "webcam_frames"},
+                }
+
+        # 낙상 미감지
+        return {
+            "is_fall": False,
+            "confidence": 0.0,
+            "local_clip_path": None,
+            "extra_meta": {},
+        }
+
+    def _run_auxiliary_inference(
+        self,
+        clip_local_path: str | None,
+        frames_b64: list[str] | None,
+        now: datetime,
+    ) -> dict[str, Any]:
+        """입력 타입에 따라 Auxiliary(휠체어 등) 감지 추론 실행"""
+
+        # 비디오 파일 경로가 주어진 경우
+        if clip_local_path:
+            cap = cv2.VideoCapture(clip_local_path)
+            if not cap.isOpened():
+                return {"detected": False, "confidence": 0.0, "local_clip_path": None, "extra_meta": {}}
+
+            fps = int(cap.get(cv2.CAP_PROP_FPS)) or 30
+            width = int(cap.get(cv2.CAP_PROP_FRAME_WIDTH))
+            height = int(cap.get(cv2.CAP_PROP_FRAME_HEIGHT))
+
+            frames_buffer = []
+            detected = False
+            detected_frame = None
+
+            skip_frames = 0
+            while True:
+                ret, frame = cap.read()
+                if not ret:
+                    break
+                frames_buffer.append(frame.copy())
+
+                # 감지 후 10초 스킵
+                if skip_frames > 0:
+                    skip_frames -= 1
+                    continue
+
+                result = self.auxiliary_detector.process_frame(frame)
+
+                if result.get("detected") and not detected:
+                    detected = True
+                    detected_frame = len(frames_buffer)
+                    skip_frames = fps * 10  # 10초 스킵
+
+            cap.release()
+
+            if detected:
+                # 클립 저장 (감지 시점 ±5초)
+                timestamp = now.strftime("%Y%m%d_%H%M%S")
+                local_clip_dir = os.path.join(settings.CACHE_DIR, "auxiliary_clips")
+                _ensure_dir(local_clip_dir)
+                local_clip_path = os.path.join(local_clip_dir, f"cctv_auxiliary_{timestamp}.mp4")
+
+                clip_seconds = 5
+                start_frame = max(0, detected_frame - clip_seconds * fps)
+                end_frame = min(len(frames_buffer), detected_frame + clip_seconds * fps)
+
+                fourcc = cv2.VideoWriter_fourcc(*'mp4v')
+                out = cv2.VideoWriter(local_clip_path, fourcc, fps, (width, height))
+                for f in frames_buffer[start_frame:end_frame]:
+                    out.write(f)
+                out.release()
+
+                return {
+                    "detected": True,
+                    "confidence": 1.0,
+                    "local_clip_path": local_clip_path,
+                    "extra_meta": {"source": "video_file"},
+                }
+
+        # base64 인코딩된 프레임들(실시간 웹캠)이 주어진 경우
+        elif frames_b64:
+            decoded_frames = []
+            detected = False
+
+            for frame_b64 in frames_b64:
+                frame_bytes, frame_rgb = self._decode_frame({"frame_b64": frame_b64})
+                frame_bgr = cv2.cvtColor(frame_rgb, cv2.COLOR_RGB2BGR)
+                decoded_frames.append(frame_bgr)
+
+                result = self.auxiliary_detector.process_frame(frame_bgr)
+
+                if result.get("detected") and not detected:
+                    detected = True
+
+            if detected and decoded_frames:
+                timestamp = now.strftime("%Y%m%d_%H%M%S")
+                local_clip_dir = os.path.join(settings.CACHE_DIR, "auxiliary_clips")
+                _ensure_dir(local_clip_dir)
+                local_clip_path = os.path.join(local_clip_dir, f"cctv_auxiliary_{timestamp}.mp4")
+
+                h, w = decoded_frames[0].shape[:2]
+                fourcc = cv2.VideoWriter_fourcc(*'mp4v')
+                out = cv2.VideoWriter(local_clip_path, fourcc, 15, (w, h))
+                for f in decoded_frames:
+                    out.write(f)
+                out.release()
+
+                return {
+                    "detected": True,
+                    "confidence": 1.0,
+                    "local_clip_path": local_clip_path,
+                    "extra_meta": {"source": "webcam_frames"},
+                }
+
+        # Auxiliary 미감지
+        return {
+            "detected": False,
             "confidence": 0.0,
             "local_clip_path": None,
             "extra_meta": {},
