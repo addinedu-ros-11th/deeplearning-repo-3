@@ -5,7 +5,7 @@ import hashlib
 import os
 import tempfile
 from datetime import datetime
-from app.services.gcs_utils import load_latest_model
+from app.util.gcs_utils import load_latest_model
 
 # GCS 설정
 GCS_BUCKET_NAME = "gcs-bucket-models"
