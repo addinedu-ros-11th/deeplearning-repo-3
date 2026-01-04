@@ -1,19 +1,18 @@
 import cv2
 import logging
+import os
 from collections import deque
 from datetime import datetime
-import sys
 
-sys.path.append('/home/hyo/git/deeplearning-repo-3/ai-inference')
-
-from app.services.gcs_utils import load_latest_model
+from ultralytics import YOLO
+from app.util.gcs_utils import load_latest_model
 
 
 # =========================
 # GCS 설정
 # =========================
 GCS_BUCKET = "gcs-bucket-models"
-GCS_PREFIX = "cctv_"
+GCS_FALL_DOWN_PREFIX = "cctv_fall_down_"
 
 
 class FallDownDetection:
@@ -21,26 +20,25 @@ class FallDownDetection:
     YOLOv8 Pose 기반 낙상 감지 전처리 클래스
     """
 
-    def __init__(self, fps=30):
+    def __init__(self, fps=30, output_dir='./fall_clips'):
         """
         fps: 입력 영상 FPS
         """
         self.logger = logging.getLogger(__name__)
         self.logger.info("GCS에서 낙상 모델 로딩 중...")
 
-        self.model = load_latest_model(
-            GCS_BUCKET,
-            GCS_PREFIX,
-            "fall_down_model"
-        )
+        pt_path = load_latest_model(GCS_BUCKET, GCS_FALL_DOWN_PREFIX, ".pt")
+        self.model = YOLO(pt_path)
 
         self.logger.info("낙상 모델 로딩 완료")
 
         self.feature_name = "fall_down"
         self.fps = fps
+        self.output_dir = output_dir
 
         self.frame_buffer = deque(maxlen=fps * 10)  # 전후 5초
         self.fall_counter = {}
+        self.last_clip_path = None
 
         self.FALL_FRAME_THRESHOLD = 2
         self.ASPECT_RATIO_TH = 1.0
@@ -50,7 +48,8 @@ class FallDownDetection:
         프레임 처리 및 낙상 여부 판정
         """
         result = {
-            "is_fall": False
+            "is_fall": False,
+            "clip_path": None
         }
 
         try:
@@ -67,7 +66,6 @@ class FallDownDetection:
 
             if is_fall:
                 self.logger.info("낙상 감지됨")
-                self._save_clip()
 
             result["is_fall"] = is_fall
             return result
@@ -113,14 +111,17 @@ class FallDownDetection:
         이벤트 발생 전후 5초 영상 클립 저장
         """
         if not self.frame_buffer:
-            return
+            return None
+
+        os.makedirs(self.output_dir, exist_ok=True)
 
         timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
         filename = f"cctv_{self.feature_name}_{timestamp}.mp4"
+        clip_path = os.path.join(self.output_dir, filename)
 
         h, w, _ = self.frame_buffer[0].shape
         out = cv2.VideoWriter(
-            filename,
+            clip_path,
             cv2.VideoWriter_fourcc(*"mp4v"),
             self.fps,
             (w, h)
@@ -130,9 +131,11 @@ class FallDownDetection:
             out.write(frame)
 
         out.release()
-        self.logger.info(f"Clip saved: {filename}")
+        self.last_clip_path = clip_path
+        self.logger.info(f"Clip saved: {clip_path}")
+        return clip_path
 
-    def predict_video(self, video_path):
+    def predict_video(self, video_path, save_clip=True):
         """
         비디오 파일 전체 분석
         """
@@ -143,6 +146,7 @@ class FallDownDetection:
 
         is_fall_detected = False
         frame_count = 0
+        clip_path = None
 
         while True:
             ret, frame = cap.read()
@@ -154,6 +158,7 @@ class FallDownDetection:
 
             if result["is_fall"]:
                 is_fall_detected = True
+                clip_path = result.get("clip_path")
                 self.logger.warning(
                     f"낙상 발생! (frame: {frame_count})"
                 )
@@ -162,7 +167,8 @@ class FallDownDetection:
         cap.release()
 
         return {
-            "is_fall": is_fall_detected
+            "is_fall": is_fall_detected,
+            "clip_path": clip_path
         }
 
 
