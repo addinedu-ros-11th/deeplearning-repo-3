@@ -258,22 +258,37 @@ class InferenceEngine:
         frames_b64 = payload.get("frames_b64")
         GCS_BUCKET_CCTV = os.getenv("GCS_BUCKET_CCTV")
 
+        if clip_local_path:
+            frames, fps, width, height = self._decode_video(clip_local_path)
+        elif frames_b64:
+            frames = self._decode_b64_frames(frames_b64)
+            fps = 15
+            if frames:
+                height, width = frames[0].shape[:2]
+            else:
+                height, width = 0, 0
+        else:
+            frames, fps, width, height = [], 30, 0, 0
+
+        if not frames:
+            return {"events": []}
+
         events = []
         tasks = []
 
         if self.violence_classifier:
-            tasks.append(("VIOLENCE", self._run_violence_inference, clip_local_path, frames_b64, now))
+            tasks.append(("VIOLENCE", self._run_violence_inference_frames))
 
         if self.fall_detector:
-            tasks.append(("FALL", self._run_fall_inference, clip_local_path, frames_b64, now))
+            tasks.append(("FALL", self._run_fall_inference_frames))
 
         if self.auxiliary_detector:
-            tasks.append(("AUXILIARY", self._run_auxiliary_inference, clip_local_path, frames_b64, now))
+            tasks.append(("WHEELCHAIR", self._run_auxiliary_inference_frames))
 
         with ThreadPoolExecutor(max_workers=3) as executor:
             future_to_type = {
-                executor.submit(func, clip_local_path, frames_b64, now): event_type
-                for event_type, func, *args in tasks
+                executor.submit(func, frames, fps, width, height, now): event_type
+                for event_type, func in tasks
             }
 
             for future in as_completed(future_to_type):
@@ -285,7 +300,7 @@ class InferenceEngine:
                         detected = True
                     elif event_type == "FALL" and result["is_fall"]:
                         detected = True
-                    elif event_type == "AUXILIARY" and result["detected"]:
+                    elif event_type == "WHEELCHAIR" and result["detected"]:
                         detected = True
                     else:
                         detected = False
@@ -358,314 +373,200 @@ class InferenceEngine:
 
         return event_data
 
-    def _run_violence_inference(
+    def _run_violence_inference_frames(
         self,
-        clip_local_path: str | None,
-        frames_b64: list[str] | None,
+        frames: list[np.ndarray],
+        fps: int,
+        width: int,
+        height: int,
         now: datetime,
     ) -> dict[str, Any]:
-        """입력 타입에 따라 폭력 감지 추론 실행"""
-        
-        # 비디오 파일 경로가 주어진 경우
-        if clip_local_path:
-            result = self.violence_classifier.predict_video(
-                clip_local_path,
-                frame_interval=3,
-                save_clip=True,
-                output_dir=os.path.join(settings.CACHE_DIR, "violence_clips")
-            )
+        """공유 프레임으로 폭력 감지 추론"""
+        self.violence_classifier._reset()
 
-            if result and result.get("is_violence"):
-                return {
-                    "is_violence": True,
-                    "confidence": float(result.get("max_probability", 0.0)),
-                    "local_clip_path": result.get("clip_path"),
-                    "extra_meta": {
-                        "source": "video_file",
-                        "avg_probability": float(result.get("avg_probability", 0.0)),
-                        "violence_ratio": float(result.get("violence_ratio", 0.0)),
-                    },
-                }
+        probabilities = []
+        violence_detected = False
+        violence_frame = None
+        frame_interval = 3
 
-        # base64 인코딩된 프레임들(실시간 웹캠)이 주어진 경우
-        elif frames_b64:
-            self.violence_classifier._reset()
+        for i, frame in enumerate(frames):
+            if i % frame_interval != 0:
+                continue
 
-            decoded_frames = []
-            violence_detected = False
-            violence_result = None
-
-            for frame_b64 in frames_b64:
-                frame_bytes, frame_rgb = self._decode_frame({"frame_b64": frame_b64})
-                frame_bgr = cv2.cvtColor(frame_rgb, cv2.COLOR_RGB2BGR)
-                decoded_frames.append(frame_bgr)
-
-                result = self.violence_classifier.process_frame(frame_bgr)
-
-                if result.get("is_violence") and not violence_detected:
+            result = self.violence_classifier.process_frame(frame)
+            if result.get("ready"):
+                prob = result.get("probability", 0.0)
+                probabilities.append(prob)
+                if prob >= self.violence_classifier.threshold and not violence_detected:
                     violence_detected = True
-                    violence_result = result
+                    violence_frame = i
 
-            if violence_detected and violence_result and decoded_frames:
-                # 프레임들을 비디오로 저장
-                timestamp = now.strftime("%Y%m%d_%H%M%S")
-                local_clip_dir = os.path.join(settings.CACHE_DIR, "violence_clips")
-                _ensure_dir(local_clip_dir)
-                local_clip_path = os.path.join(local_clip_dir, f"cctv_violence_{timestamp}.mp4")
+        if not probabilities:
+            return {"is_violence": False, "confidence": 0.0, "local_clip_path": None, "extra_meta": {}}
 
-                h, w = decoded_frames[0].shape[:2]
-                fourcc = cv2.VideoWriter_fourcc(*'mp4v')
-                out = cv2.VideoWriter(local_clip_path, fourcc, 15, (w, h))
-                for f in decoded_frames:
-                    out.write(f)
-                out.release()
+        if violence_detected:
+            # 클립 저장 (감지 시점 ±5초)
+            timestamp = now.strftime("%Y%m%d_%H%M%S")
+            local_clip_dir = os.path.join(settings.CACHE_DIR, "violence_clips")
+            _ensure_dir(local_clip_dir)
+            local_clip_path = os.path.join(local_clip_dir, f"cctv_violence_{timestamp}.mp4")
 
-                return {
-                    "is_violence": True,
-                    "confidence": float(violence_result.get("probability", 0.0)),
-                    "local_clip_path": local_clip_path,
-                    "extra_meta": {
-                        "source": "webcam_frames",
-                        "votes": violence_result.get("votes", 0),
-                        "total_votes": violence_result.get("total_votes", 0),
-                    },
-                }
+            clip_seconds = 5
+            start_frame = max(0, violence_frame - clip_seconds * fps)
+            end_frame = min(len(frames), violence_frame + clip_seconds * fps)
 
-        # 폭력 미감지
-        return {
-            "is_violence": False,
-            "confidence": 0.0,
-            "local_clip_path": None,
-            "extra_meta": {},
-        }
+            fourcc = cv2.VideoWriter_fourcc(*'mp4v')
+            out = cv2.VideoWriter(local_clip_path, fourcc, fps, (width, height))
+            for f in frames[start_frame:end_frame]:
+                out.write(f)
+            out.release()
 
-    def _run_fall_inference(
+            violence_count = sum(1 for p in probabilities if p >= self.violence_classifier.threshold)
+            return {
+                "is_violence": True,
+                "confidence": float(max(probabilities)),
+                "local_clip_path": local_clip_path,
+                "extra_meta": {
+                    "source": "shared_frames",
+                    "avg_probability": float(np.mean(probabilities)),
+                    "violence_ratio": float(violence_count / len(probabilities)),
+                },
+            }
+
+        return {"is_violence": False, "confidence": 0.0, "local_clip_path": None, "extra_meta": {}}
+
+    def _run_fall_inference_frames(
         self,
-        clip_local_path: str | None,
-        frames_b64: list[str] | None,
+        frames: list[np.ndarray],
+        fps: int,
+        width: int,
+        height: int,
         now: datetime,
     ) -> dict[str, Any]:
-        """입력 타입에 따라 낙상 감지 추론 실행"""
+        """공유 프레임으로 낙상 감지 추론"""
+        fall_detected = False
+        fall_frame = None
+        skip_frames = 0
 
-        # 비디오 파일 경로가 주어진 경우
-        if clip_local_path:
-            cap = cv2.VideoCapture(clip_local_path)
-            if not cap.isOpened():
-                return {"is_fall": False, "confidence": 0.0, "local_clip_path": None, "extra_meta": {}}
+        for i, frame in enumerate(frames):
+            if skip_frames > 0:
+                skip_frames -= 1
+                continue
 
-            fps = int(cap.get(cv2.CAP_PROP_FPS)) or 30
-            width = int(cap.get(cv2.CAP_PROP_FRAME_WIDTH))
-            height = int(cap.get(cv2.CAP_PROP_FRAME_HEIGHT))
+            result = self.fall_detector.process_frame(frame)
 
-            frames_buffer = []
-            fall_detected = False
-            fall_frame = None
+            if result.get("is_fall") and not fall_detected:
+                fall_detected = True
+                fall_frame = i
+                skip_frames = fps * 10
 
-            skip_frames = 0
-            while True:
-                ret, frame = cap.read()
-                if not ret:
-                    break
-                frames_buffer.append(frame.copy())
+        if fall_detected:
+            timestamp = now.strftime("%Y%m%d_%H%M%S")
+            local_clip_dir = os.path.join(settings.CACHE_DIR, "fall_clips")
+            _ensure_dir(local_clip_dir)
+            local_clip_path = os.path.join(local_clip_dir, f"cctv_fall_down_{timestamp}.mp4")
 
-                # 감지 후 10초 스킵
-                if skip_frames > 0:
-                    skip_frames -= 1
-                    continue
+            clip_seconds = 5
+            start_frame = max(0, fall_frame - clip_seconds * fps)
+            end_frame = min(len(frames), fall_frame + clip_seconds * fps)
 
-                result = self.fall_detector.process_frame(frame)
+            fourcc = cv2.VideoWriter_fourcc(*'mp4v')
+            out = cv2.VideoWriter(local_clip_path, fourcc, fps, (width, height))
+            for f in frames[start_frame:end_frame]:
+                out.write(f)
+            out.release()
 
-                if result.get("is_fall") and not fall_detected:
-                    fall_detected = True
-                    fall_frame = len(frames_buffer)
-                    skip_frames = fps * 10  # 10초 스킵
+            return {
+                "is_fall": True,
+                "confidence": 1.0,
+                "local_clip_path": local_clip_path,
+                "extra_meta": {"source": "shared_frames"},
+            }
 
-            cap.release()
+        return {"is_fall": False, "confidence": 0.0, "local_clip_path": None, "extra_meta": {}}
 
-            if fall_detected:
-                # 클립 저장 (감지 시점 ±5초)
-                logging.info(f"낙상 클립 저장 시작 - fall_frame: {fall_frame}, total_frames: {len(frames_buffer)}")
-                timestamp = now.strftime("%Y%m%d_%H%M%S")
-                local_clip_dir = os.path.join(settings.CACHE_DIR, "fall_clips")
-                logging.info(f"클립 저장 경로: {local_clip_dir}")
-                _ensure_dir(local_clip_dir)
-                local_clip_path = os.path.join(local_clip_dir, f"cctv_fall_down_{timestamp}.mp4")
-
-                clip_seconds = 5
-                start_frame = max(0, fall_frame - clip_seconds * fps)
-                end_frame = min(len(frames_buffer), fall_frame + clip_seconds * fps)
-                logging.info(f"클립 범위: {start_frame} ~ {end_frame} (fps: {fps})")
-
-                fourcc = cv2.VideoWriter_fourcc(*'mp4v')
-                out = cv2.VideoWriter(local_clip_path, fourcc, fps, (width, height))
-                for f in frames_buffer[start_frame:end_frame]:
-                    out.write(f)
-                out.release()
-                logging.info(f"낙상 클립 저장 완료: {local_clip_path}")
-
-                return {
-                    "is_fall": True,
-                    "confidence": 1.0,
-                    "local_clip_path": local_clip_path,
-                    "extra_meta": {"source": "video_file"},
-                }
-
-        # base64 인코딩된 프레임들(실시간 웹캠)이 주어진 경우
-        elif frames_b64:
-            decoded_frames = []
-            fall_detected = False
-
-            for frame_b64 in frames_b64:
-                frame_bytes, frame_rgb = self._decode_frame({"frame_b64": frame_b64})
-                frame_bgr = cv2.cvtColor(frame_rgb, cv2.COLOR_RGB2BGR)
-                decoded_frames.append(frame_bgr)
-
-                result = self.fall_detector.process_frame(frame_bgr)
-
-                if result.get("is_fall") and not fall_detected:
-                    fall_detected = True
-
-            if fall_detected and decoded_frames:
-                timestamp = now.strftime("%Y%m%d_%H%M%S")
-                local_clip_dir = os.path.join(settings.CACHE_DIR, "fall_clips")
-                _ensure_dir(local_clip_dir)
-                local_clip_path = os.path.join(local_clip_dir, f"cctv_fall_down_{timestamp}.mp4")
-
-                h, w = decoded_frames[0].shape[:2]
-                fourcc = cv2.VideoWriter_fourcc(*'mp4v')
-                out = cv2.VideoWriter(local_clip_path, fourcc, 15, (w, h))
-                for f in decoded_frames:
-                    out.write(f)
-                out.release()
-
-                return {
-                    "is_fall": True,
-                    "confidence": 1.0,
-                    "local_clip_path": local_clip_path,
-                    "extra_meta": {"source": "webcam_frames"},
-                }
-
-        # 낙상 미감지
-        return {
-            "is_fall": False,
-            "confidence": 0.0,
-            "local_clip_path": None,
-            "extra_meta": {},
-        }
-
-    def _run_auxiliary_inference(
+    def _run_auxiliary_inference_frames(
         self,
-        clip_local_path: str | None,
-        frames_b64: list[str] | None,
+        frames: list[np.ndarray],
+        fps: int,
+        width: int,
+        height: int,
         now: datetime,
     ) -> dict[str, Any]:
-        """입력 타입에 따라 Auxiliary(휠체어 등) 감지 추론 실행"""
+        """공유 프레임으로 Auxiliary 감지 추론"""
+        detected = False
+        detected_frame = None
+        skip_frames = 0
 
-        # 비디오 파일 경로가 주어진 경우
-        if clip_local_path:
-            cap = cv2.VideoCapture(clip_local_path)
-            if not cap.isOpened():
-                return {"detected": False, "confidence": 0.0, "local_clip_path": None, "extra_meta": {}}
+        for i, frame in enumerate(frames):
+            if skip_frames > 0:
+                skip_frames -= 1
+                continue
 
-            fps = int(cap.get(cv2.CAP_PROP_FPS)) or 30
-            width = int(cap.get(cv2.CAP_PROP_FRAME_WIDTH))
-            height = int(cap.get(cv2.CAP_PROP_FRAME_HEIGHT))
+            result = self.auxiliary_detector.process_frame(frame)
 
-            frames_buffer = []
-            detected = False
-            detected_frame = None
+            if result.get("detected") and not detected:
+                detected = True
+                detected_frame = i
+                skip_frames = fps * 10
 
-            skip_frames = 0
-            while True:
-                ret, frame = cap.read()
-                if not ret:
-                    break
-                frames_buffer.append(frame.copy())
+        if detected:
+            timestamp = now.strftime("%Y%m%d_%H%M%S")
+            local_clip_dir = os.path.join(settings.CACHE_DIR, "auxiliary_clips")
+            _ensure_dir(local_clip_dir)
+            local_clip_path = os.path.join(local_clip_dir, f"cctv_auxiliary_{timestamp}.mp4")
 
-                # 감지 후 10초 스킵
-                if skip_frames > 0:
-                    skip_frames -= 1
-                    continue
+            clip_seconds = 5
+            start_frame = max(0, detected_frame - clip_seconds * fps)
+            end_frame = min(len(frames), detected_frame + clip_seconds * fps)
 
-                result = self.auxiliary_detector.process_frame(frame)
+            fourcc = cv2.VideoWriter_fourcc(*'mp4v')
+            out = cv2.VideoWriter(local_clip_path, fourcc, fps, (width, height))
+            for f in frames[start_frame:end_frame]:
+                out.write(f)
+            out.release()
 
-                if result.get("detected") and not detected:
-                    detected = True
-                    detected_frame = len(frames_buffer)
-                    skip_frames = fps * 10  # 10초 스킵
+            return {
+                "detected": True,
+                "confidence": 1.0,
+                "local_clip_path": local_clip_path,
+                "extra_meta": {"source": "shared_frames"},
+            }
 
-            cap.release()
-
-            if detected:
-                # 클립 저장 (감지 시점 ±5초)
-                timestamp = now.strftime("%Y%m%d_%H%M%S")
-                local_clip_dir = os.path.join(settings.CACHE_DIR, "auxiliary_clips")
-                _ensure_dir(local_clip_dir)
-                local_clip_path = os.path.join(local_clip_dir, f"cctv_auxiliary_{timestamp}.mp4")
-
-                clip_seconds = 5
-                start_frame = max(0, detected_frame - clip_seconds * fps)
-                end_frame = min(len(frames_buffer), detected_frame + clip_seconds * fps)
-
-                fourcc = cv2.VideoWriter_fourcc(*'mp4v')
-                out = cv2.VideoWriter(local_clip_path, fourcc, fps, (width, height))
-                for f in frames_buffer[start_frame:end_frame]:
-                    out.write(f)
-                out.release()
-
-                return {
-                    "detected": True,
-                    "confidence": 1.0,
-                    "local_clip_path": local_clip_path,
-                    "extra_meta": {"source": "video_file"},
-                }
-
-        # base64 인코딩된 프레임들(실시간 웹캠)이 주어진 경우
-        elif frames_b64:
-            decoded_frames = []
-            detected = False
-
-            for frame_b64 in frames_b64:
-                frame_bytes, frame_rgb = self._decode_frame({"frame_b64": frame_b64})
-                frame_bgr = cv2.cvtColor(frame_rgb, cv2.COLOR_RGB2BGR)
-                decoded_frames.append(frame_bgr)
-
-                result = self.auxiliary_detector.process_frame(frame_bgr)
-
-                if result.get("detected") and not detected:
-                    detected = True
-
-            if detected and decoded_frames:
-                timestamp = now.strftime("%Y%m%d_%H%M%S")
-                local_clip_dir = os.path.join(settings.CACHE_DIR, "auxiliary_clips")
-                _ensure_dir(local_clip_dir)
-                local_clip_path = os.path.join(local_clip_dir, f"cctv_auxiliary_{timestamp}.mp4")
-
-                h, w = decoded_frames[0].shape[:2]
-                fourcc = cv2.VideoWriter_fourcc(*'mp4v')
-                out = cv2.VideoWriter(local_clip_path, fourcc, 15, (w, h))
-                for f in decoded_frames:
-                    out.write(f)
-                out.release()
-
-                return {
-                    "detected": True,
-                    "confidence": 1.0,
-                    "local_clip_path": local_clip_path,
-                    "extra_meta": {"source": "webcam_frames"},
-                }
-
-        # Auxiliary 미감지
-        return {
-            "detected": False,
-            "confidence": 0.0,
-            "local_clip_path": None,
-            "extra_meta": {},
-        }
+        return {"detected": False, "confidence": 0.0, "local_clip_path": None, "extra_meta": {}}
 
     # -----------------------------
     # helpers
     # -----------------------------
+    def _decode_video(self, path: str) -> tuple[list, int, int, int]:
+        """비디오를 한 번만 디코딩하여 프레임 리스트 반환"""
+        cap = cv2.VideoCapture(path)
+        if not cap.isOpened():
+            return [], 30, 0, 0
+
+        fps = int(cap.get(cv2.CAP_PROP_FPS)) or 30
+        width = int(cap.get(cv2.CAP_PROP_FRAME_WIDTH))
+        height = int(cap.get(cv2.CAP_PROP_FRAME_HEIGHT))
+
+        frames = []
+        while True:
+            ret, frame = cap.read()
+            if not ret:
+                break
+            frames.append(frame)
+        cap.release()
+
+        return frames, fps, width, height
+
+    def _decode_b64_frames(self, frames_b64: list[str]) -> list[np.ndarray]:
+        """Base64 프레임들을 디코딩"""
+        decoded_frames = []
+        for frame_b64 in frames_b64:
+            frame_bytes, frame_rgb = self._decode_frame({"frame_b64": frame_b64})
+            frame_bgr = cv2.cvtColor(frame_rgb, cv2.COLOR_RGB2BGR)
+            decoded_frames.append(frame_bgr)
+        return decoded_frames
+
     def _decode_frame(self, payload: dict[str, Any]) -> tuple[bytes, np.ndarray]:
         frame_b64 = payload.get("frame_b64")
         if not frame_b64:
