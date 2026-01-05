@@ -85,12 +85,25 @@ def create_recognition_run(session_uuid: str, body: RecognitionRunCreate, db: Se
     if body.decision in (DecisionState.REVIEW, DecisionState.UNKNOWN):
         open_review = db.query(Review).filter(Review.session_id == s.session_id, Review.status == ReviewStatus.OPEN).first()
         if not open_review:
+            # result_json에서 top_k 데이터 추출
+            top_k_data = None
+            if body.result_json:
+                instances = body.result_json.get("instances", [])
+                if instances:
+                    top_k_data = [
+                        {"item_id": inst.get("best_item_id"), "qty": inst.get("qty", 1)}
+                        for inst in instances
+                        if inst.get("best_item_id")
+                    ]
+                if not top_k_data:
+                    top_k_data = body.result_json.get("items") or body.result_json.get("top_k")
+
             r = Review(
                 session_id=s.session_id,
                 run_id=run.run_id,
                 status=ReviewStatus.OPEN,
                 reason=body.decision.value,
-                top_k_json=None,
+                top_k_json=top_k_data,
                 created_at=utcnow(),
             )
             db.add(r)

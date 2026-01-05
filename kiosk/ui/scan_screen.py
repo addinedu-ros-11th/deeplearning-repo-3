@@ -473,16 +473,24 @@ class ScanScreen(QWidget):
         self.is_inferring = True
         logging.info("[AI추론] AI 추론 시작")
 
-        # 프레임을 JPEG로 인코딩
-        _, buffer = cv2.imencode('.jpg', self.current_frame)
-        frame_bytes = buffer.tobytes()
+        # 테스트: 웹캠 대신 테스트 이미지 사용
+        import os
+        test_image_path = os.path.join(os.path.dirname(__file__), "..", "data", "tray_test.png")
+        if os.path.exists(test_image_path):
+            with open(test_image_path, "rb") as f:
+                frame_bytes = f.read()
+            logging.info(f"[AI추론] 테스트 이미지 사용: {test_image_path}")
+        else:
+            # 프레임을 JPEG로 인코딩
+            _, buffer = cv2.imencode('.jpg', self.current_frame)
+            frame_bytes = buffer.tobytes()
 
         # AI 추론 Worker 실행
         self.infer_worker = InferWorker(
             session_uuid=self.session_uuid,
             frame_bytes=frame_bytes,
             store_code=f"STORE-{self.store_id:02d}",
-            device_code=f"DEVICE-{self.checkout_device_id:02d}"
+            device_code=f"POS-{self.checkout_device_id:02d}"
         )
         self.infer_worker.success.connect(self.on_inference_success)
         self.infer_worker.error.connect(self.on_inference_error)
@@ -497,18 +505,17 @@ class ScanScreen(QWidget):
         logging.info(f"[AI추론] 결과: decision={decision}, result_json={result_json}")
 
         # 실제 환경에선 아래 주석 해제 필요
-        # if decision == "AUTO":
-        if decision == "AUTO" or decision == "REVIEW":
+        if decision == "AUTO":
             # 인식된 아이템을 장바구니에 추가 + 결제 버튼 활성화
             self.process_inference_result(result_json)
             self.pay_btn.setEnabled(True)
-            """
+            
         elif decision == "REVIEW":
             # 아이템 표시하되 결제 버튼 비활성화
             logging.warning("[AI추론] 수동 검토 필요 - 결제 버튼 비활성화")
             self.process_inference_result(result_json)
             self.pay_btn.setEnabled(False)
-            """
+            
         else:
             logging.warning(f"[AI추론] 알 수 없는 결과: {decision}")
             self.pay_btn.setEnabled(False)
