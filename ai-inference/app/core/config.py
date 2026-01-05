@@ -10,7 +10,7 @@ if ENV_FILE.exists():
     load_dotenv(ENV_FILE, override=True)
 
 class Settings(BaseSettings):
-    model_config = SettingsConfigDict(extra="ignore")
+    model_config = SettingsConfigDict(env_file=".env", env_file_encoding="utf-8", extra="ignore")
 
     AI_ADMIN_KEY: str
     AI_MOCK_MODE: int = 1

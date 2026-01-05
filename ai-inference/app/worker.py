@@ -8,7 +8,7 @@ from typing import Any
 
 from app.core.config import settings
 from app.services.central_client import CentralClient, CentralClientError
-from app.services.gcs_utils import download_to
+from app.util.gcs_utils import download_to
 
 
 def _utcnow() -> datetime:
