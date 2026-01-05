@@ -14,7 +14,7 @@ from PIL import Image
 from app.core.config import settings
 from app.services.prototype_index import PrototypeIndex, load_index
 from app.services.central_client import CentralClient
-from app.util.gcs_utils import upload_to_gcs
+from app.util.gcs_utils import upload_to_gcs, download_to
 from dotenv import load_dotenv
 import cv2
 import torch
