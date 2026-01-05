@@ -1,7 +1,16 @@
+from pathlib import Path
+from dotenv import load_dotenv
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
+# .env 파일의 절대 경로
+ENV_FILE = Path(__file__).resolve().parent.parent.parent / ".env"
+
+# python-dotenv로 직접 로드
+if ENV_FILE.exists():
+    load_dotenv(ENV_FILE, override=True)
+
 class Settings(BaseSettings):
-    model_config = SettingsConfigDict(env_file=".env", env_ignore_empty=True, extra="ignore")
+    model_config = SettingsConfigDict(env_file=".env", env_file_encoding="utf-8", extra="ignore")
 
     AI_ADMIN_KEY: str
     AI_MOCK_MODE: int = 1
@@ -28,5 +37,10 @@ class Settings(BaseSettings):
     MARGIN_TH: float = 0.03                     # AUTO/REVIEW 경계
     UNKNOWN_DIST_TH: float = 0.35               # UNKNOWN 판단(예시는 임의, 데이터로 튜닝)
     OVERLAP_BLOCK_TH: float = 0.25              # 인스턴스 overlap 차단
+
+    # Worker (Central Job polling)
+    AI_WORKER_MODE: int = 0                     # 1이면 FastAPI startup에서 worker thread 기동
+    WORKER_ID: str = "ai-worker-1"             # 중앙 Job claim에 사용
+    POLL_INTERVAL_S: float = 0.5                # job 없을 때 sleep
 
 settings = Settings()

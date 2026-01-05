@@ -3,7 +3,7 @@
 // ============================================
 
 import type { Transaction, TransactionStatus, OrderHdrOut } from "./types";
-import { apiFetch } from "./config";
+import { apiFetch, formatToKST } from "./config";
 
 /**
  * central-api Order -> dashboard Transaction 변환
@@ -28,7 +28,7 @@ export function orderToTransaction(order: OrderHdrOut, separator: string = ", ")
     product: productNames || "상품 없음",
     amount: `${order.total_amount_won.toLocaleString()}원`,
     status,
-    time: new Date(order.created_at).toLocaleString("ko-KR"),
+    time: formatToKST(order.created_at),
   };
 }
 

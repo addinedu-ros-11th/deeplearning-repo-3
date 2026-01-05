@@ -12,7 +12,7 @@ import type {
   OrderHdrOut,
   ReviewOut,
 } from "./types";
-import { apiFetch, DEFAULT_STORE_CODE } from "./config";
+import { apiFetch, DEFAULT_STORE_CODE, formatToKST } from "./config";
 import { orderToTransaction } from "./paymentApi";
 
 // Top Menu API 응답 타입 (dashboardApi 전용)
@@ -81,7 +81,7 @@ export async function fetchAlertsSummary(): Promise<AlertSummary[]> {
       severity,
       type: review.reason,
       message,
-      timestamp: new Date(review.created_at).toLocaleString("ko-KR"),
+      timestamp: formatToKST(review.created_at),
     };
   });
 }

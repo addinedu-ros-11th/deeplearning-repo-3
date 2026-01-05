@@ -3,18 +3,27 @@
 // ============================================
 
 import type { Alert, AlertSeverity, AlertCategory, ReviewOut, CctvEventOut, CctvEventType } from "./types";
-import { apiFetch } from "./config";
+import { apiFetch, formatToKST } from "./config";
 
 // central-api Review -> dashboard Alert 변환
 function reviewToAlert(review: ReviewOut): Alert {
   // reason에 따라 심각도 결정
   let type: AlertSeverity = "normal";
-  if (review.reason === "REVIEW") type = "critical";
-  else if (review.reason === "UNKNOWN") type = "warning";
-
-  // top_k_json 파싱하여 메시지 생성
   let message = `세션 ${review.session_id} 검토 필요: ${review.reason}`;
-  if (review.top_k_json && Array.isArray(review.top_k_json)) {
+  let category: AlertCategory = "payment";
+
+  if (review.reason === "ADMIN_CALL") {
+    type = "warning";
+    message = "관리자 호출 요청";
+    category = "system";
+  } else if (review.reason === "REVIEW") {
+    type = "critical";
+  } else if (review.reason === "UNKNOWN") {
+    type = "warning";
+  }
+
+  // top_k_json 파싱하여 메시지 생성 (ADMIN_CALL이 아닌 경우만)
+  if (review.reason !== "ADMIN_CALL" && review.top_k_json && Array.isArray(review.top_k_json)) {
     const itemIds = review.top_k_json
       .map((item: any) => item.item_id)
       .filter((id: any) => id !== undefined)
@@ -25,13 +34,22 @@ function reviewToAlert(review: ReviewOut): Alert {
     }
   }
 
+  // 위치 정보 구성
+  let location = `Session #${review.session_id}`;
+  if (review.store_name || review.device_code) {
+    const parts = [];
+    if (review.store_name) parts.push(review.store_name);
+    if (review.device_code) parts.push(review.device_code);
+    location = parts.join(" / ");
+  }
+
   return {
     id: `REV-${review.review_id}`,
     type,
-    category: "payment", // 리뷰는 결제 관련
+    category,
     message,
-    location: `Session #${review.session_id}`,
-    timestamp: new Date(review.created_at).toLocaleString("ko-KR"),
+    location,
+    timestamp: formatToKST(review.created_at),
     isRead: review.status === "RESOLVED",
     review_id: review.review_id,  // 확정 처리에 필요
     top_k_json: review.top_k_json,  // 확정 처리에 필요
@@ -93,7 +111,7 @@ function cctvEventToAlert(event: CctvEventOut): Alert {
     category: event.event_type === "VANDALISM" ? "security" : "safety",
     message,
     location: `CCTV Device #${event.cctv_device_id}`,
-    timestamp: new Date(event.created_at).toLocaleString("ko-KR"),
+    timestamp: formatToKST(event.created_at),
     isRead: event.status !== "OPEN",
     event_id: event.event_id,
     clip_url: clipUrl,
