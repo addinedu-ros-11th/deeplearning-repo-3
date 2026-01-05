@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import base64
 import io
+import logging
 import os
 from datetime import datetime, timezone, timedelta
 from typing import Any, Optional, Tuple
@@ -13,12 +14,35 @@ from PIL import Image
 from app.core.config import settings
 from app.services.prototype_index import PrototypeIndex, load_index
 from app.services.central_client import CentralClient
-from app.services.gcs_utils import download_to
+from app.util.gcs_utils import upload_to_gcs, download_to
+from dotenv import load_dotenv
+import cv2
+import torch
+import torch.nn as nn
+from torchvision import models, transforms
+from torchvision.models import ResNet50_Weights
+from ultralytics import YOLO
 
+from app.util.preprocessing.violence_classification import ViolenceClassification
+from app.util.preprocessing.fall_down_detection import FallDownDetection
+from app.util.preprocessing.auxiliary_tools import AuxiliaryTools
+
+import sys
+from YOLOwrapper import FallDownDetection as FallDownDetectionWrapper, YOLOWrapper
+from concurrent.futures import ThreadPoolExecutor, as_completed
+import asyncio
+
+# 로거 설정
+scanner_logger = logging.getLogger("scanner")
+cctv_logger = logging.getLogger("cctv")
+
+sys.modules['__main__'].FallDownDetection = FallDownDetectionWrapper
+sys.modules['__main__'].YOLOWrapper = YOLOWrapper
 
 def _ensure_dir(path: str) -> None:
     os.makedirs(path, exist_ok=True)
 
+load_dotenv()
 
 def _env_int(name: str, default: int) -> int:
     try:
@@ -32,39 +56,6 @@ def _env_float(name: str, default: float) -> float:
         return float(os.getenv(name, str(default)).strip())
     except Exception:
         return default
-
-
-    def _resolve_yolo_local_path(self) -> str | None:
-        # 1) 로컬 경로 우선
-        yolo_path = (
-            os.getenv("YOLO_MODEL_PATH", "").strip()
-            or str(getattr(settings, "YOLO_MODEL_PATH", "") or "").strip()
-        )
-        if yolo_path:
-            return yolo_path
-
-        # 2) URI로 받으면 캐시에 내려받음
-        yolo_uri = (
-            os.getenv("YOLO_MODEL_URI", "").strip()
-            or str(getattr(settings, "YOLO_MODEL_URI", "") or "").strip()
-        )
-        if not yolo_uri:
-            return None
-
-        cache_dir = os.path.join(getattr(settings, "CACHE_DIR", "/tmp"), "models")
-        _ensure_dir(cache_dir)
-
-        parsed = urlparse(yolo_uri)
-        filename = os.path.basename(parsed.path) or "yolo.pt"
-        local_path = os.path.join(cache_dir, filename)
-
-        # 이미 있으면 재사용
-        if os.path.exists(local_path) and os.path.getsize(local_path) > 0:
-            return local_path
-
-        # gs:// 또는 https:// 등 다운로드
-        download_to(yolo_uri, local_path)
-        return local_path
 
 
 class InferenceEngine:
@@ -89,27 +80,72 @@ class InferenceEngine:
 
         self.use_job_queue = os.getenv("AI_USE_JOB_QUEUE", "1").strip() == "1"
 
+    def _resolve_yolo_local_path(self) -> str | None:
+        """YOLO 모델 경로 결정: 로컬 우선, 없으면 GCS에서 다운로드"""
+        # 1) 로컬 경로 우선
+        yolo_path = (
+            os.getenv("YOLO_MODEL_PATH", "").strip()
+            or str(getattr(settings, "YOLO_MODEL_PATH", "") or "").strip()
+        )
+        if yolo_path and os.path.exists(yolo_path):
+            return yolo_path
+
+        # 2) URI로 받으면 캐시에 내려받음
+        yolo_uri = (
+            os.getenv("YOLO_MODEL_URI", "").strip()
+            or str(getattr(settings, "YOLO_MODEL_GCS_URI", "") or "").strip()
+        )
+        if not yolo_uri:
+            return None
+
+        cache_dir = os.path.join(getattr(settings, "CACHE_DIR", "/tmp"), "models")
+        _ensure_dir(cache_dir)
+
+        parsed = urlparse(yolo_uri)
+        filename = os.path.basename(parsed.path) or "yolo.pt"
+        local_path = os.path.join(cache_dir, filename)
+
+        # 이미 있으면 재사용
+        if os.path.exists(local_path) and os.path.getsize(local_path) > 0:
+            scanner_logger.info(f"[scanner] YOLO 모델 캐시 사용: {local_path}")
+            return local_path
+
+        # gs:// 또는 https:// 등 다운로드
+        scanner_logger.info(f"[scanner] YOLO 모델 다운로드: {yolo_uri}")
+        download_to(yolo_uri, local_path)
+        return local_path
+
+        self.violence_classifier: ViolenceClassification | None = None
+        self.fall_detector: FallDownDetection | None = None
+        self.auxiliary_detector: AuxiliaryTools | None = None
 
     def startup_load(self) -> None:
         if self.mock:
             return
 
-        # 1) prototype_set 기반 통합 인덱스 로드
+        # CCTV 폭력 감지 모델 로드 (GCS에서)
         try:
-            npy_uri, meta_uri, psid = self._resolve_active_prototype_index_uris()
-            if npy_uri and meta_uri:
-                cache_dir = os.path.join(getattr(settings, "CACHE_DIR", "/tmp"), "prototype_index")
-                _ensure_dir(cache_dir)
+            self.violence_classifier = ViolenceClassification()
+        except Exception as e:
+            logging.warning(f"ViolenceClassification 로드 실패: {e}")
+            self.violence_classifier = None
 
-                npy_local = self._fetch_uri_to_local(npy_uri, cache_dir)
-                meta_local = self._fetch_uri_to_local(meta_uri, cache_dir)
+        # CCTV 낙상 감지 모델 로드 (GCS에서)
+        try:
+            self.fall_detector = FallDownDetection()
+        except Exception as e:
+            logging.warning(f"FallDownDetection 로드 실패: {e}")
+            self.fall_detector = None
 
-                self.prototype_index = load_index(npy_local, meta_local)
-                self.prototype_set_id = psid
-            else:
-                self.prototype_index = None
-                self.prototype_set_id = None
-        except Exception:
+        # CCTV Auxiliary 감지 모델 로드 (GCS에서)
+        try:
+            self.auxiliary_detector = AuxiliaryTools()
+        except Exception as e:
+            logging.warning(f"AuxiliaryTools 로드 실패: {e}")
+            self.auxiliary_detector = None
+
+        # 이번 데모 정책: prototype은 로컬에서 관리 (Central/GCS에서 끌어오지 않음)
+        if not settings.PROTOTYPE_INDEX_PATH:
             self.prototype_index = None
             self.prototype_set_id = None
 
@@ -119,7 +155,9 @@ class InferenceEngine:
             if yolo_local:
                 from ultralytics import YOLO  # type: ignore
                 self.yolo = YOLO(yolo_local)
-        except Exception:
+                scanner_logger.info(f"[scanner] YOLO 모델 로드 완료: {yolo_local}")
+        except Exception as e:
+            scanner_logger.error(f"[scanner] YOLO 모델 로드 실패: {e}")
             self.yolo = None
 
     def infer_tray(self, payload: dict[str, Any]) -> dict[str, Any]:
@@ -212,11 +250,15 @@ class InferenceEngine:
                     "error": "no detections",
                 },
             }
+            scanner_logger.warning(
+                "[scanner] 미감지: session=%s, reason=no detections",
+                session_uuid,
+            )
             if not self.use_job_queue:
                 self._try_ingest_to_central(session_uuid, store_code, device_code, attempt_no, res)
             return res
 
-        # decision 정책(권장):
+        # decision 정책:
         # - 하나라도 REVIEW/UNKNOWN 있으면 REVIEW
         # - 전부 AUTO면 AUTO
         # - 전부 UNKNOWN이면 UNKNOWN
@@ -250,203 +292,341 @@ class InferenceEngine:
                 "items": items,
             },
         }
+
+        # 추론 결과 로깅
+        if decision in ("AUTO", "REVIEW"):
+            scanner_logger.info(
+                "[scanner] 추론 성공: session=%s, decision=%s, instances=%d, items=%d",
+                session_uuid,
+                decision,
+                len(instances),
+                len(items),
+            )
+        elif decision == "UNKNOWN":
+            scanner_logger.warning(
+                "[scanner] 미감지: session=%s, reason=all instances unknown, instances=%d",
+                session_uuid,
+                len(instances),
+            )
+
         if not self.use_job_queue:
             self._try_ingest_to_central(session_uuid, store_code, device_code, attempt_no, res)
         return res
 
     def infer_cctv(self, payload: dict[str, Any]) -> dict[str, Any]:
+        """CCTV 폭력/낙상 감지 추론"""
         now = datetime.now(timezone.utc)
-        
-        clip_gcs_uri = payload.get("clip_gcs_uri")
-        frames_b64 = payload.get("frames_b64")
-        
-        # 입력 검증 (스키마에서 이미 검증되지만 추가 안전장치)
-        if not clip_gcs_uri and not frames_b64:
-            return {"events": []}
-        
-        # clip_gcs_uri가 제공된 경우 다운로드하여 처리
-        local_clip_path = None
-        if clip_gcs_uri:
-            try:
-                cache_dir = os.path.join(getattr(settings, "CACHE_DIR", "/tmp"), "cctv_clips")
-                _ensure_dir(cache_dir)
-                timestamp = int(now.timestamp() * 1000)
-                local_clip_path = os.path.join(cache_dir, f"clip_{timestamp}.mp4")
-                download_to(clip_gcs_uri, local_clip_path)
-            except Exception as e:
-                # 다운로드 실패 시 빈 결과 반환 (error 필드는 스키마에 없으므로 제거)
-                return {"events": []}
-        
-        try:
-            if self.mock:
-                return {
-                    "events": [
-                        {
-                            "event_type": "FALL",
-                            "confidence": 0.88,
-                            "started_at": (now - timedelta(seconds=2)).replace(tzinfo=None).isoformat(sep=" "),
-                            "ended_at": now.replace(tzinfo=None).isoformat(sep=" "),
-                            "meta_json": {"mode": "mock", "clip_gcs_uri": clip_gcs_uri},
-                        }
-                    ],
-                }
-            
-            # TODO: 실제 비디오 처리 로직 구현
-            # - clip_path_uri 또는 frames_b64를 사용하여 이벤트 감지
-            # - OpenCV로 비디오 읽기 및 프레임 처리
-            # - frames_b64가 제공된 경우 base64 디코딩하여 처리
-            
-            return {"events": []}
-        finally:
-            # 임시 파일 정리 (예외 발생 시에도 실행 보장)
-            if local_clip_path and os.path.exists(local_clip_path):
-                try:
-                    os.remove(local_clip_path)
-                except Exception:
-                    pass
 
-    # -----------------------------
-    # YOLO seg -> crop -> embedding -> kNN -> gating
-    # -----------------------------
-    def _infer_instances(self, img: np.ndarray) -> list[dict[str, Any]]:
-        """
-        반환 instances 형식(예시):
-        {
-          "instance_id": 1,
-          "confidence": 0.9,
-          "bbox": [x1,y1,x2,y2],
-          "label_text": "item-101",
-          "top_k": [{"item_id": 101, "distance": 0.12}, ...],
-          "best_item_id": 101,
-          "match_distance": 0.12,
-          "match_margin": 0.04,
-          "state": "AUTO|REVIEW|UNKNOWN",
-          "qty": 1
-        }
-        """
-        if not self.prototype_index:
-            return []
-
-        if self.yolo is None:
-            return []
-
-        H, W = int(img.shape[0]), int(img.shape[1])
-        out: list[dict[str, Any]] = []
-
-        try:
-            # ultralytics는 입력을 np.ndarray(BGR/RGB)로 받아도 동작하는 경우가 많지만,
-            # 여기서는 PIL 경유 없이 그대로 전달합니다.
-            results = self.yolo.predict(
-                source=img,
-                imgsz=self.yolo_imgsz,
-                conf=self.yolo_conf,
-                iou=self.yolo_iou,
-                device=self.ai_device,
-                verbose=False,
-            )
-        except Exception:
-            return []
-
-        if not results:
-            return []
-
-        inst_id = 1
-        for r in results:
-            boxes = getattr(r, "boxes", None)
-            if boxes is None:
-                continue
-
-            xyxy = getattr(boxes, "xyxy", None)
-            conf = getattr(boxes, "conf", None)
-
-            if xyxy is None:
-                continue
-
-            xyxy_np = xyxy.detach().cpu().numpy() if hasattr(xyxy, "detach") else np.array(xyxy)
-            conf_np = None
-            if conf is not None:
-                conf_np = conf.detach().cpu().numpy() if hasattr(conf, "detach") else np.array(conf)
-
-            for i in range(xyxy_np.shape[0]):
-                x1, y1, x2, y2 = xyxy_np[i].tolist()
-
-                # clamp + int
-                x1i = max(0, min(W - 1, int(x1)))
-                y1i = max(0, min(H - 1, int(y1)))
-                x2i = max(0, min(W, int(x2)))
-                y2i = max(0, min(H, int(y2)))
-
-                if x2i <= x1i or y2i <= y1i:
-                    continue
-
-                c = float(conf_np[i]) if conf_np is not None and i < len(conf_np) else 0.0
-
-                crop = img[y1i:y2i, x1i:x2i]
-                q = self._embed_crop_simple(crop, self.prototype_index.vectors.shape[1])
-
-                topk = self.prototype_index.knn(q, k=self.knn_topk)
-                if not topk:
-                    continue
-
-                best_item, d1 = topk[0]
-                d2 = topk[1][1] if len(topk) > 1 else (d1 + 1.0)
-                margin = float(d2 - d1)
-
-                if float(d1) > float(self.unknown_dist_th):
-                    state = "UNKNOWN"
-                else:
-                    state = "AUTO" if margin >= float(self.margin_th) else "REVIEW"
-
-                out.append(
+        if self.mock:
+            return {
+                "events": [
                     {
-                        "instance_id": inst_id,
-                        "confidence": float(c),
-                        "bbox": [x1i, y1i, x2i, y2i],
-                        "label_text": f"item-{int(best_item)}",
-                        "top_k": [{"item_id": int(ii), "distance": float(dd)} for ii, dd in topk],
-                        "best_item_id": int(best_item),
-                        "match_distance": float(d1),
-                        "match_margin": margin,
-                        "state": state,
-                        "qty": 1,
+                        "event_type": "VIOLENCE",
+                        "confidence": 0.88,
+                        "started_at": (now - timedelta(seconds=2)).replace(tzinfo=None).isoformat(sep=" "),
+                        "ended_at": now.replace(tzinfo=None).isoformat(sep=" "),
+                        "meta_json": {"mode": "mock"},
+                    },
+                    {
+                        "event_type": "FALL",
+                        "confidence": 0.92,
+                        "started_at": (now - timedelta(seconds=2)).replace(tzinfo=None).isoformat(sep=" "),
+                        "ended_at": now.replace(tzinfo=None).isoformat(sep=" "),
+                        "meta_json": {"mode": "mock"},
+                    },
+                    {
+                        "event_type": "AUXILIARY",
+                        "confidence": 0.90,
+                        "started_at": (now - timedelta(seconds=2)).replace(tzinfo=None).isoformat(sep=" "),
+                        "ended_at": now.replace(tzinfo=None).isoformat(sep=" "),
+                        "meta_json": {"mode": "mock"},
                     }
-                )
-                inst_id += 1
+                ]
+            }
 
-        return out
+        # 공통 변수
+        store_code = payload.get("store_code", "")
+        device_code = payload.get("device_code", "")
+        clip_local_path = payload.get("clip_local_path")
+        frames_b64 = payload.get("frames_b64")
+        GCS_BUCKET_CCTV = os.getenv("GCS_BUCKET_CCTV")
 
-    def _embed_crop_simple(self, crop: np.ndarray, dim: int) -> np.ndarray:
-        """
-        외부 임베딩 모델이 아직 없더라도 서버가 깨지지 않도록,
-        numpy/PIL만으로 동작하는 간단한(결정론적) 임베딩을 생성합니다.
-        - dim은 prototype_index의 vector dimension에 맞춥니다.
-        """
-        if dim <= 0:
-            return np.zeros((0,), dtype=np.float32)
+        if clip_local_path:
+            frames, fps, width, height = self._decode_video(clip_local_path)
+        elif frames_b64:
+            frames = self._decode_b64_frames(frames_b64)
+            fps = 15
+            if frames:
+                height, width = frames[0].shape[:2]
+            else:
+                height, width = 0, 0
+        else:
+            frames, fps, width, height = [], 30, 0, 0
 
-        if crop is None or crop.size == 0:
-            v = np.zeros((dim,), dtype=np.float32)
-            return v
+        if not frames:
+            return {"events": []}
 
-        try:
-            im = Image.fromarray(crop.astype(np.uint8)).convert("RGB").resize((32, 32))
-            arr = np.asarray(im).astype(np.float32) / 255.0
-            flat = arr.reshape(-1)  # 32*32*3 = 3072
-        except Exception:
-            v = np.zeros((dim,), dtype=np.float32)
-            return v
+        events = []
+        tasks = []
 
-        seg = int(np.ceil(flat.size / dim)) if dim > 0 else 1
-        if seg <= 0:
-            seg = 1
-        pad = dim * seg - flat.size
-        if pad > 0:
-            flat = np.pad(flat, (0, pad), mode="constant")
-        v = flat.reshape(dim, seg).mean(axis=1).astype(np.float32)
+        if self.violence_classifier:
+            tasks.append(("VIOLENCE", self._run_violence_inference_frames))
 
-        n = float(np.linalg.norm(v) + 1e-12)
-        v = v / n
-        return v
+        if self.fall_detector:
+            tasks.append(("FALL", self._run_fall_inference_frames))
+
+        if self.auxiliary_detector:
+            tasks.append(("WHEELCHAIR", self._run_auxiliary_inference_frames))
+
+        with ThreadPoolExecutor(max_workers=3) as executor:
+            future_to_type = {
+                executor.submit(func, frames, fps, width, height, now): event_type
+                for event_type, func in tasks
+            }
+
+            for future in as_completed(future_to_type):
+                event_type = future_to_type[future]
+                try:
+                    result = future.result()
+
+                    if event_type == "VIOLENCE" and result["is_violence"]:
+                        detected = True
+                    elif event_type == "FALL" and result["is_fall"]:
+                        detected = True
+                    elif event_type == "WHEELCHAIR" and result["detected"]:
+                        detected = True
+                    else:
+                        detected = False
+                    
+                    if detected:
+                        event = self._process_cctv_event(
+                                event_type=event_type,
+                                inference_result=result,
+                                now=now,
+                                store_code=store_code,
+                                device_code=device_code,
+                                gcs_bucket=GCS_BUCKET_CCTV,
+                            )
+                        if event:
+                            events.append(event)
+                except Exception as e:
+                    logging.warning(f"{event_type} 추론 실패: {e}")
+
+        return {"events": events}
+
+    def _process_cctv_event(
+        self,
+        event_type: str,
+        inference_result: dict[str, Any],
+        now: datetime,
+        store_code: str,
+        device_code: str,
+        gcs_bucket: str,
+    ) -> dict[str, Any] | None:
+        """CCTV 이벤트 처리 (GCS 업로드 + Central API 저장)"""
+        local_clip_path = inference_result.get("local_clip_path")
+        confidence = inference_result.get("confidence", 0.0)
+        extra_meta = inference_result.get("extra_meta", {})
+
+        gcs_uri = None
+
+        # GCS 업로드
+        if local_clip_path and os.path.exists(local_clip_path):
+            timestamp = now.strftime("%Y%m%d_%H%M%S")
+            # FALL -> fall_down 으로 변환 (일관성 유지)
+            event_name = "fall_down" if event_type == "FALL" else event_type.lower()
+            blob_name = f"cctv_{event_name}_{timestamp}.mp4"
+            try:
+                gcs_uri = upload_to_gcs(local_clip_path, gcs_bucket, blob_name)
+            except Exception as e:
+                logging.warning(f"GCS 업로드 실패 ({event_type}): {e}")
+
+        # 이벤트 데이터 생성
+        event_data = {
+            "event_type": event_type,
+            "confidence": confidence,
+            "started_at": now.replace(tzinfo=None).isoformat(sep=" "),
+            "ended_at": now.replace(tzinfo=None).isoformat(sep=" "),
+            "meta_json": {
+                "mode": "real",
+                "clip_path": local_clip_path,
+                "gcs_uri": gcs_uri,
+                **extra_meta,
+            },
+        }
+
+        # Central API에 이벤트 저장
+        if gcs_uri and store_code and device_code:
+            self._try_ingest_cctv_event(
+                store_code=store_code,
+                device_code=device_code,
+                event_data=event_data,
+                gcs_uri=gcs_uri,
+            )
+
+        return event_data
+
+    def _run_violence_inference_frames(
+        self,
+        frames: list[np.ndarray],
+        fps: int,
+        width: int,
+        height: int,
+        now: datetime,
+    ) -> dict[str, Any]:
+        """공유 프레임으로 폭력 감지 추론"""
+        self.violence_classifier._reset()
+
+        probabilities = []
+        violence_detected = False
+        violence_frame = None
+        frame_interval = 3
+
+        for i, frame in enumerate(frames):
+            if i % frame_interval != 0:
+                continue
+
+            result = self.violence_classifier.process_frame(frame)
+            if result.get("ready"):
+                prob = result.get("probability", 0.0)
+                probabilities.append(prob)
+                if prob >= self.violence_classifier.threshold and not violence_detected:
+                    violence_detected = True
+                    violence_frame = i
+
+        if not probabilities:
+            return {"is_violence": False, "confidence": 0.0, "local_clip_path": None, "extra_meta": {}}
+
+        if violence_detected:
+            # 클립 저장 (감지 시점 ±5초)
+            timestamp = now.strftime("%Y%m%d_%H%M%S")
+            local_clip_dir = os.path.join(settings.CACHE_DIR, "violence_clips")
+            _ensure_dir(local_clip_dir)
+            local_clip_path = os.path.join(local_clip_dir, f"cctv_violence_{timestamp}.mp4")
+
+            clip_seconds = 5
+            start_frame = max(0, violence_frame - clip_seconds * fps)
+            end_frame = min(len(frames), violence_frame + clip_seconds * fps)
+
+            fourcc = cv2.VideoWriter_fourcc(*'mp4v')
+            out = cv2.VideoWriter(local_clip_path, fourcc, fps, (width, height))
+            for f in frames[start_frame:end_frame]:
+                out.write(f)
+            out.release()
+
+            violence_count = sum(1 for p in probabilities if p >= self.violence_classifier.threshold)
+            return {
+                "is_violence": True,
+                "confidence": float(max(probabilities)),
+                "local_clip_path": local_clip_path,
+                "extra_meta": {
+                    "source": "shared_frames",
+                    "avg_probability": float(np.mean(probabilities)),
+                    "violence_ratio": float(violence_count / len(probabilities)),
+                },
+            }
+
+        return {"is_violence": False, "confidence": 0.0, "local_clip_path": None, "extra_meta": {}}
+
+    def _run_fall_inference_frames(
+        self,
+        frames: list[np.ndarray],
+        fps: int,
+        width: int,
+        height: int,
+        now: datetime,
+    ) -> dict[str, Any]:
+        """공유 프레임으로 낙상 감지 추론"""
+        fall_detected = False
+        fall_frame = None
+        skip_frames = 0
+
+        for i, frame in enumerate(frames):
+            if skip_frames > 0:
+                skip_frames -= 1
+                continue
+
+            result = self.fall_detector.process_frame(frame)
+
+            if result.get("is_fall") and not fall_detected:
+                fall_detected = True
+                fall_frame = i
+                skip_frames = fps * 10
+
+        if fall_detected:
+            timestamp = now.strftime("%Y%m%d_%H%M%S")
+            local_clip_dir = os.path.join(settings.CACHE_DIR, "fall_clips")
+            _ensure_dir(local_clip_dir)
+            local_clip_path = os.path.join(local_clip_dir, f"cctv_fall_down_{timestamp}.mp4")
+
+            clip_seconds = 5
+            start_frame = max(0, fall_frame - clip_seconds * fps)
+            end_frame = min(len(frames), fall_frame + clip_seconds * fps)
+
+            fourcc = cv2.VideoWriter_fourcc(*'mp4v')
+            out = cv2.VideoWriter(local_clip_path, fourcc, fps, (width, height))
+            for f in frames[start_frame:end_frame]:
+                out.write(f)
+            out.release()
+
+            return {
+                "is_fall": True,
+                "confidence": 1.0,
+                "local_clip_path": local_clip_path,
+                "extra_meta": {"source": "shared_frames"},
+            }
+
+        return {"is_fall": False, "confidence": 0.0, "local_clip_path": None, "extra_meta": {}}
+
+    def _run_auxiliary_inference_frames(
+        self,
+        frames: list[np.ndarray],
+        fps: int,
+        width: int,
+        height: int,
+        now: datetime,
+    ) -> dict[str, Any]:
+        """공유 프레임으로 Auxiliary 감지 추론"""
+        detected = False
+        detected_frame = None
+        skip_frames = 0
+
+        for i, frame in enumerate(frames):
+            if skip_frames > 0:
+                skip_frames -= 1
+                continue
+
+            result = self.auxiliary_detector.process_frame(frame)
+
+            if result.get("detected") and not detected:
+                detected = True
+                detected_frame = i
+                skip_frames = fps * 10
+
+        if detected:
+            timestamp = now.strftime("%Y%m%d_%H%M%S")
+            local_clip_dir = os.path.join(settings.CACHE_DIR, "auxiliary_clips")
+            _ensure_dir(local_clip_dir)
+            local_clip_path = os.path.join(local_clip_dir, f"cctv_auxiliary_{timestamp}.mp4")
+
+            clip_seconds = 5
+            start_frame = max(0, detected_frame - clip_seconds * fps)
+            end_frame = min(len(frames), detected_frame + clip_seconds * fps)
+
+            fourcc = cv2.VideoWriter_fourcc(*'mp4v')
+            out = cv2.VideoWriter(local_clip_path, fourcc, fps, (width, height))
+            for f in frames[start_frame:end_frame]:
+                out.write(f)
+            out.release()
+
+            return {
+                "detected": True,
+                "confidence": 1.0,
+                "local_clip_path": local_clip_path,
+                "extra_meta": {"source": "shared_frames"},
+            }
+
+        return {"detected": False, "confidence": 0.0, "local_clip_path": None, "extra_meta": {}}
 
     # -----------------------------
     # prototype_set 기반 로딩 helpers
@@ -544,6 +724,35 @@ class InferenceEngine:
     # -----------------------------
     # 기존 helpers
     # -----------------------------
+    def _decode_video(self, path: str) -> tuple[list, int, int, int]:
+        """비디오를 한 번만 디코딩하여 프레임 리스트 반환"""
+        cap = cv2.VideoCapture(path)
+        if not cap.isOpened():
+            return [], 30, 0, 0
+
+        fps = int(cap.get(cv2.CAP_PROP_FPS)) or 30
+        width = int(cap.get(cv2.CAP_PROP_FRAME_WIDTH))
+        height = int(cap.get(cv2.CAP_PROP_FRAME_HEIGHT))
+
+        frames = []
+        while True:
+            ret, frame = cap.read()
+            if not ret:
+                break
+            frames.append(frame)
+        cap.release()
+
+        return frames, fps, width, height
+
+    def _decode_b64_frames(self, frames_b64: list[str]) -> list[np.ndarray]:
+        """Base64 프레임들을 디코딩"""
+        decoded_frames = []
+        for frame_b64 in frames_b64:
+            frame_bytes, frame_rgb = self._decode_frame({"frame_b64": frame_b64})
+            frame_bgr = cv2.cvtColor(frame_rgb, cv2.COLOR_RGB2BGR)
+            decoded_frames.append(frame_bgr)
+        return decoded_frames
+
     def _decode_frame(self, payload: dict[str, Any]) -> tuple[bytes, np.ndarray]:
         frame_b64 = payload.get("frame_b64")
         if not frame_b64:
@@ -593,3 +802,161 @@ class InferenceEngine:
             )
         except Exception:
             pass
+
+    def _try_ingest_cctv_event(
+        self,
+        store_code: str,
+        device_code: str,
+        event_data: dict[str, Any],
+        gcs_uri: str,
+    ) -> None:
+        """CCTV 이벤트를 Central API에 저장 시도"""
+        try:
+            cc = CentralClient()
+            cc.ingest_cctv_event(
+                store_code=store_code,
+                device_code=device_code,
+                event_type=event_data.get("event_type", "VIOLENCE"),
+                confidence=event_data.get("confidence", 0.0),
+                started_at=event_data.get("started_at"),
+                ended_at=event_data.get("ended_at"),
+                clip_gcs_uri=gcs_uri,
+                clip_start_at=event_data.get("started_at"),
+                clip_end_at=event_data.get("ended_at"),
+                meta_json=event_data.get("meta_json"),
+                timeout_s=3.0,
+            )
+        except Exception as e:
+            logging.warning(f"Central API CCTV 이벤트 저장 실패: {e}")
+
+    def _load_models(self) -> None:
+        # device
+        self.device = getattr(settings, "AI_DEVICE", "cpu")  # 없으면 cpu
+
+        # YOLO seg
+        yolo_path = getattr(settings, "YOLO_SEG_MODEL_PATH", None)
+        if not yolo_path:
+            raise ValueError("YOLO_SEG_MODEL_PATH is required for real inference")
+        self.yolo = YOLO(yolo_path)
+
+        # ResNet50 embedder
+        w = ResNet50_Weights.IMAGENET1K_V2
+        m = models.resnet50(weights=w)
+        m.fc = nn.Identity()
+        m.eval()
+        m.to(self.device)
+        self.embed_model = m
+
+        self.embed_tf = transforms.Compose([
+            transforms.Resize((224, 224)),
+            transforms.ToTensor(),
+            transforms.Normalize(mean=(0.485, 0.456, 0.406),
+                                std=(0.229, 0.224, 0.225)),
+        ])
+
+    def _l2norm(self, v: np.ndarray, eps: float = 1e-12) -> np.ndarray:
+        n = np.linalg.norm(v) + eps
+        return (v / n).astype(np.float32)
+
+    @torch.no_grad()
+    def _embed_rgb(self, crop_rgb: np.ndarray) -> np.ndarray:
+        # crop_rgb: (H,W,3) RGB
+        pil = Image.fromarray(crop_rgb).convert("RGB")
+        x = self.embed_tf(pil).unsqueeze(0).to(self.device)  # (1,3,224,224)
+        y = self.embed_model(x)  # (1,2048)
+        v = y.squeeze(0).detach().cpu().numpy().astype(np.float32)
+        return self._l2norm(v)
+
+    def _masked_crop_rgb(self, img_rgb: np.ndarray, mask: np.ndarray, box: np.ndarray) -> np.ndarray:
+        h, w = img_rgb.shape[:2]
+
+        x1, y1, x2, y2 = box.astype(int).tolist()
+        x1 = max(0, min(x1, w - 1))
+        y1 = max(0, min(y1, h - 1))
+        x2 = max(0, min(x2, w))
+        y2 = max(0, min(y2, h))
+        if x2 <= x1: x2 = min(w, x1 + 1)
+        if y2 <= y1: y2 = min(h, y1 + 1)
+
+        # mask shape 맞추기
+        if mask.shape[0] != h or mask.shape[1] != w:
+            mask = cv2.resize(mask.astype(np.uint8), (w, h), interpolation=cv2.INTER_NEAREST)
+
+        crop = img_rgb[y1:y2, x1:x2].copy()
+        m = mask[y1:y2, x1:x2]
+
+        if m.max() > 1:
+            m = (m > 127).astype(np.uint8)
+        else:
+            m = (m > 0).astype(np.uint8)
+
+        bg = np.full_like(crop, 255, dtype=np.uint8)
+        m3 = np.repeat(m[:, :, None], 3, axis=2)
+        out = np.where(m3 == 1, crop, bg)
+        return out
+    
+    def _gate(self, d1: float, d2: float) -> tuple[str, float]:
+        unknown_th = float(getattr(settings, "UNKNOWN_DIST_TH", 0.35))
+        margin_th = float(getattr(settings, "MARGIN_TH", 0.03))
+        margin = float(d2 - d1)
+
+        if d1 > unknown_th:
+            return "UNKNOWN", margin
+        if margin < margin_th:
+            return "REVIEW", margin
+        return "AUTO", margin
+
+    def _infer_instances(self, img_rgb: np.ndarray) -> list[dict[str, Any]]:
+        if not self.yolo or not self.embed_model or not self.prototype_index:
+            return []
+
+        # Ultralytics는 numpy 입력이 BGR 기준인 케이스가 있어 안전하게 변환
+        img_bgr = img_rgb[:, :, ::-1].copy()
+
+        # YOLO seg
+        res = self.yolo.predict(
+            source=img_bgr,
+            imgsz=int(getattr(settings, "YOLO_IMGSZ", 640)),
+            conf=float(getattr(settings, "YOLO_CONF", 0.25)),
+            iou=float(getattr(settings, "YOLO_IOU", 0.7)),
+            device=self.device,
+            verbose=False,
+        )[0]
+
+        if res.masks is None or res.boxes is None or len(res.boxes) == 0:
+            return []
+
+        masks = res.masks.data.detach().cpu().numpy()  # (n,H,W)
+        boxes = res.boxes.xyxy.detach().cpu().numpy()  # (n,4)
+        confs = res.boxes.conf.detach().cpu().numpy()  # (n,)
+
+        instances: list[dict[str, Any]] = []
+        k = int(getattr(settings, "KNN_TOPK", 5))
+
+        for i in range(len(confs)):
+            crop_rgb = self._masked_crop_rgb(img_rgb, masks[i], boxes[i])
+            q = self._embed_rgb(crop_rgb)
+
+            topk = self.prototype_index.knn(q, k=k)  # [(item_id, dist), ...]
+            if not topk:
+                continue
+
+            best_item, d1 = topk[0]
+            d2 = topk[1][1] if len(topk) > 1 else (d1 + 1.0)
+
+            state, margin = self._gate(float(d1), float(d2))
+
+            instances.append({
+                "instance_id": len(instances) + 1,
+                "confidence": float(confs[i]),
+                "bbox": [int(x) for x in boxes[i].tolist()],
+                "label_text": "",  # 또는 f"item-{int(best_item)}"
+                "top_k": [{"item_id": int(it), "distance": float(d)} for it, d in topk],
+                "best_item_id": int(best_item),
+                "match_distance": float(d1),
+                "match_margin": float(margin),
+                "state": state,
+                "qty": 1,
+            })
+
+        return instances

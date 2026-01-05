@@ -2,9 +2,8 @@ import cv2
 import numpy as np
 from collections import deque
 import logging
-import sys
-sys.path.append('/home/hyo/git/deeplearning-repo-3/ai-inference')
-from app.services.gcs_utils import load_latest_model
+
+from app.util.gcs_utils import load_latest_model
 
 # 로깅 설정
 logging.basicConfig(

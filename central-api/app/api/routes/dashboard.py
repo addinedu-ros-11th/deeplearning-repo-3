@@ -1,4 +1,4 @@
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, timezone
 from fastapi import APIRouter, Depends, HTTPException
 from sqlalchemy import text, func
 from sqlalchemy.orm import Session
@@ -11,6 +11,19 @@ from app.schemas.dashboard import (
 )
 
 router = APIRouter(dependencies=[Depends(require_admin_key)])
+
+# KST (UTC+9) 타임존
+KST = timezone(timedelta(hours=9))
+
+def get_kst_now():
+    """현재 KST 시간 반환"""
+    return datetime.now(KST)
+
+def utc_to_kst(utc_dt: datetime) -> datetime:
+    """UTC datetime을 KST로 변환"""
+    if utc_dt.tzinfo is None:
+        utc_dt = utc_dt.replace(tzinfo=timezone.utc)
+    return utc_dt.astimezone(KST)
 
 @router.get("/dashboards/top-menu", response_model=list[TopMenuRow])
 def top_menu(
@@ -51,15 +64,21 @@ def get_kpis(
     store_code: str,
     db: Session = Depends(get_db),
 ):
-    """오늘의 KPI 데이터 조회"""
+    """오늘의 KPI 데이터 조회 (KST 기준)"""
     store = db.query(Store).filter(Store.store_code == store_code).first()
     if not store:
         raise HTTPException(status_code=404, detail="store not found")
 
-    # 오늘 날짜 범위
-    today = datetime.now().replace(hour=0, minute=0, second=0, microsecond=0)
-    tomorrow = today + timedelta(days=1)
-    yesterday = today - timedelta(days=1)
+    # KST 기준 오늘/어제 날짜 범위 -> UTC로 변환
+    kst_now = get_kst_now()
+    kst_today = kst_now.replace(hour=0, minute=0, second=0, microsecond=0)
+    kst_tomorrow = kst_today + timedelta(days=1)
+    kst_yesterday = kst_today - timedelta(days=1)
+
+    # UTC로 변환 (DB는 UTC 저장)
+    today = kst_today.astimezone(timezone.utc).replace(tzinfo=None)
+    tomorrow = kst_tomorrow.astimezone(timezone.utc).replace(tzinfo=None)
+    yesterday = kst_yesterday.astimezone(timezone.utc).replace(tzinfo=None)
 
     # 1. 오늘 매출
     today_revenue = db.query(func.coalesce(func.sum(OrderHdr.total_amount_won), 0)).filter(
@@ -136,37 +155,34 @@ def get_hourly_revenue(
     store_code: str,
     db: Session = Depends(get_db),
 ):
-    """오늘의 시간대별 매출 조회"""
+    """오늘의 시간대별 매출 조회 (KST 기준)"""
     store = db.query(Store).filter(Store.store_code == store_code).first()
     if not store:
         raise HTTPException(status_code=404, detail="store not found")
 
-    # 오늘 날짜 범위
-    today = datetime.now().replace(hour=0, minute=0, second=0, microsecond=0)
-    tomorrow = today + timedelta(days=1)
+    # KST 기준 오늘 날짜 범위 -> UTC로 변환하여 DB 쿼리
+    kst_now = get_kst_now()
+    kst_today = kst_now.replace(hour=0, minute=0, second=0, microsecond=0)
+    kst_tomorrow = kst_today + timedelta(days=1)
 
-    # 시간대별 매출 집계
-    sql = text("""
-        SELECT
-          HOUR(created_at) AS hour,
-          COALESCE(SUM(total_amount_won), 0) AS revenue
-        FROM order_hdr
-        WHERE store_id = :store_id
-          AND status = 'PAID'
-          AND created_at >= :today
-          AND created_at < :tomorrow
-        GROUP BY HOUR(created_at)
-        ORDER BY hour
-    """)
+    # KST 자정을 UTC로 변환 (DB는 UTC 저장)
+    utc_today = kst_today.astimezone(timezone.utc).replace(tzinfo=None)
+    utc_tomorrow = kst_tomorrow.astimezone(timezone.utc).replace(tzinfo=None)
 
-    rows = db.execute(sql, {
-        "store_id": store.store_id,
-        "today": today,
-        "tomorrow": tomorrow,
-    }).mappings().all()
+    # ORM으로 오늘의 주문 가져오기
+    orders = db.query(OrderHdr).filter(
+        OrderHdr.store_id == store.store_id,
+        OrderHdr.status == "PAID",
+        OrderHdr.created_at >= utc_today,
+        OrderHdr.created_at < utc_tomorrow,
+    ).all()
 
-    # 시간대별 매출 맵 생성
-    hourly_map = {row["hour"]: int(row["revenue"]) for row in rows}
+    # Python에서 시간대별로 그룹화 (UTC -> KST 변환 후)
+    hourly_map = {}
+    for order in orders:
+        kst_time = utc_to_kst(order.created_at)
+        hour = kst_time.hour
+        hourly_map[hour] = hourly_map.get(hour, 0) + order.total_amount_won
 
     # 전체 시간대 (0-23시) 반환
     result = []
@@ -187,23 +203,28 @@ def get_weekly_data(
     store_code: str,
     db: Session = Depends(get_db),
 ):
-    """최근 7일간 일별 매출 및 고객 수 조회"""
+    """최근 7일간 일별 매출 및 고객 수 조회 (KST 기준)"""
     store = db.query(Store).filter(Store.store_code == store_code).first()
     if not store:
         raise HTTPException(status_code=404, detail="store not found")
 
-    # 이번 주 일요일부터 토요일까지 (달력 순서)
-    today = datetime.now().replace(hour=0, minute=0, second=0, microsecond=0)
+    # KST 기준 이번 주 일요일부터 토요일까지 (달력 순서)
+    kst_now = get_kst_now()
+    kst_today = kst_now.replace(hour=0, minute=0, second=0, microsecond=0)
     # 이번 주 일요일 찾기 (isoweekday: 1=월, 7=일)
-    days_since_sunday = today.isoweekday() % 7  # 일요일=0, 월요일=1, ..., 토요일=6
-    week_start = today - timedelta(days=days_since_sunday)  # 이번 주 일요일
+    days_since_sunday = kst_today.isoweekday() % 7  # 일요일=0, 월요일=1, ..., 토요일=6
+    kst_week_start = kst_today - timedelta(days=days_since_sunday)  # 이번 주 일요일
 
     days = ["일", "월", "화", "수", "목", "금", "토"]
     result = []
 
     for i in range(7):  # 일요일부터 토요일까지
-        day_start = week_start + timedelta(days=i)
-        day_end = day_start + timedelta(days=1)
+        kst_day_start = kst_week_start + timedelta(days=i)
+        kst_day_end = kst_day_start + timedelta(days=1)
+
+        # KST -> UTC 변환 (DB는 UTC 저장)
+        day_start = kst_day_start.astimezone(timezone.utc).replace(tzinfo=None)
+        day_end = kst_day_end.astimezone(timezone.utc).replace(tzinfo=None)
 
         # 매출 조회
         revenue = db.query(func.coalesce(func.sum(OrderHdr.total_amount_won), 0)).filter(
@@ -234,31 +255,33 @@ def get_hourly_customers(
     store_code: str,
     db: Session = Depends(get_db),
 ):
-    """오늘의 시간대별 고객 수 조회"""
+    """오늘의 시간대별 고객 수 조회 (KST 기준)"""
     store = db.query(Store).filter(Store.store_code == store_code).first()
     if not store:
         raise HTTPException(status_code=404, detail="store not found")
 
-    # 오늘 날짜 범위
-    today = datetime.now().replace(hour=0, minute=0, second=0, microsecond=0)
-    tomorrow = today + timedelta(days=1)
+    # KST 기준 오늘 날짜 범위 -> UTC로 변환하여 DB 쿼리
+    kst_now = get_kst_now()
+    kst_today = kst_now.replace(hour=0, minute=0, second=0, microsecond=0)
+    kst_tomorrow = kst_today + timedelta(days=1)
+
+    # KST 자정을 UTC로 변환 (DB는 UTC 저장)
+    utc_today = kst_today.astimezone(timezone.utc).replace(tzinfo=None)
+    utc_tomorrow = kst_tomorrow.astimezone(timezone.utc).replace(tzinfo=None)
 
     # ORM으로 오늘의 모든 세션 가져오기
     sessions = db.query(TraySession).filter(
         TraySession.store_id == store.store_id,
-        TraySession.created_at >= today,
-        TraySession.created_at < tomorrow,
+        TraySession.created_at >= utc_today,
+        TraySession.created_at < utc_tomorrow,
     ).all()
 
-    # Python에서 시간대별로 그룹화
+    # Python에서 시간대별로 그룹화 (UTC -> KST 변환 후)
     hourly_map = {}
-    print(f"\n=== HOURLY DEBUG ===")
     for session in sessions:
-        hour = session.created_at.hour
-        print(f"Session {session.session_id}: created_at={session.created_at}, hour={hour}")
+        kst_time = utc_to_kst(session.created_at)
+        hour = kst_time.hour
         hourly_map[hour] = hourly_map.get(hour, 0) + 1
-    print(f"Hourly map: {hourly_map}")
-    print(f"=== END DEBUG ===\n")
 
     # 전체 시간대 (0-23시) 반환
     result = []
@@ -276,13 +299,18 @@ def get_category_data(
     store_code: str,
     db: Session = Depends(get_db),
 ):
-    """카테고리별 판매 비율 조회 (최근 7일)"""
+    """카테고리별 판매 비율 조회 (최근 7일, KST 기준)"""
     store = db.query(Store).filter(Store.store_code == store_code).first()
     if not store:
         raise HTTPException(status_code=404, detail="store not found")
 
-    today = datetime.now().replace(hour=0, minute=0, second=0, microsecond=0)
-    week_ago = today - timedelta(days=7)
+    # KST 기준 날짜 범위 -> UTC로 변환
+    kst_now = get_kst_now()
+    kst_today = kst_now.replace(hour=0, minute=0, second=0, microsecond=0)
+    kst_week_ago = kst_today - timedelta(days=7)
+
+    today = kst_today.astimezone(timezone.utc).replace(tzinfo=None)
+    week_ago = kst_week_ago.astimezone(timezone.utc).replace(tzinfo=None)
 
     # 카테고리별 판매량 집계
     sql = text("""
@@ -336,15 +364,23 @@ def get_analytics_stats(
     store_code: str,
     db: Session = Depends(get_db),
 ):
-    """주간 분석 통계 조회"""
+    """주간 분석 통계 조회 (KST 기준)"""
     store = db.query(Store).filter(Store.store_code == store_code).first()
     if not store:
         raise HTTPException(status_code=404, detail="store not found")
 
-    today = datetime.now().replace(hour=0, minute=0, second=0, microsecond=0)
-    this_week_start = today - timedelta(days=today.weekday())
-    last_week_start = this_week_start - timedelta(days=7)
-    last_week_end = this_week_start
+    # KST 기준 날짜 계산
+    kst_now = get_kst_now()
+    kst_today = kst_now.replace(hour=0, minute=0, second=0, microsecond=0)
+    kst_this_week_start = kst_today - timedelta(days=kst_today.weekday())
+    kst_last_week_start = kst_this_week_start - timedelta(days=7)
+    kst_last_week_end = kst_this_week_start
+
+    # UTC로 변환
+    today = kst_today.astimezone(timezone.utc).replace(tzinfo=None)
+    this_week_start = kst_this_week_start.astimezone(timezone.utc).replace(tzinfo=None)
+    last_week_start = kst_last_week_start.astimezone(timezone.utc).replace(tzinfo=None)
+    last_week_end = kst_last_week_end.astimezone(timezone.utc).replace(tzinfo=None)
 
     # 이번 주 매출
     this_week_revenue = db.query(func.coalesce(func.sum(OrderHdr.total_amount_won), 0)).filter(

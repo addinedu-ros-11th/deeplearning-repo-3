@@ -1,5 +1,8 @@
 from PyQt6.QtWidgets import (QApplication, QWidget, QVBoxLayout, QHBoxLayout, QPushButton, QLabel, QScrollArea)
 from PyQt6.QtCore import Qt
+from thread.server_worker import APIWorker
+from popup.call_popup import CallFailPopup, CallSuccessPopup
+import logging
 
 class CheckScreen(QWidget):
     def __init__(self, switch_callback, data):
@@ -206,7 +209,7 @@ class CheckScreen(QWidget):
                 background-color: rgba(230, 218, 189, 0.5);
             }
         """)
-        call_btn.clicked.connect(lambda: self.switch_callback('scan'))
+        call_btn.clicked.connect(self.call_admin)
         
         pay_btn = QPushButton("결제")
         pay_btn.setStyleSheet("""
@@ -239,6 +242,49 @@ class CheckScreen(QWidget):
                 item.widget().deleteLater()
             elif item.layout():
                 self._clear_layout(item.layout())
+
+    def call_admin(self):
+        """관리자 호출 - 서버에 리뷰 생성 요청"""
+        session_id = self.data.get_session_id()
+        if not session_id:
+            logging.warning("[관리자호출] 세션 ID가 없습니다")
+            return
+
+        review_data = {
+            "session_id": session_id,
+            "reason": "ADMIN_CALL"
+        }
+
+        self.admin_call_worker = APIWorker(
+            api_url="/api/v1/reviews",
+            method="POST",
+            data=review_data
+        )
+        self.admin_call_worker.success.connect(self.on_admin_call_success)
+        self.admin_call_worker.error.connect(self.on_admin_call_error)
+        self.admin_call_worker.start()
+
+        logging.info(f"[관리자호출] 요청 전송: session_id={session_id}")
+
+    def on_admin_call_success(self, result):
+        """관리자 호출 성공"""
+        logging.info(f"[관리자호출] 성공: {result}")
+        call_success_popup = CallSuccessPopup()
+        call_success_popup.exec()
+
+        if call_success_popup.result == 'home':
+            self.switch_callback('home')
+
+    def on_admin_call_error(self, error_msg):
+        """관리자 호출 실패"""
+        logging.error(f"[관리자호출] 실패: {error_msg}")
+        call_fail_popup = CallFailPopup()
+        call_fail_popup.exec()
+
+        if call_fail_popup.result == 'home':
+            self.switch_callback('home')
+        elif call_fail_popup.result == 'retry':
+            self.switch_callback('scan')
 
     def complete_payment(self):
         print("결제 완료!")

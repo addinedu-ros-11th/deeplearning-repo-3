@@ -33,16 +33,19 @@ class CctvInferRequest(BaseModel):
     store_code: str
     device_code: str
 
-    # 데모에서는 둘 중 하나만 쓰도록(원하면 더 축소 가능)
+    # 데모에서는 셋 중 하나만 쓰도록
     clip_gcs_uri: str | None = None
+    clip_local_path: str | None = None
     frames_b64: list[str] | None = None
 
     @model_validator(mode="after")
     def _validate(self):
-        if not self.clip_gcs_uri and not self.frames_b64:
-            raise ValueError("Either clip_gcs_uri or frames_b64 is required")
-        if self.clip_gcs_uri and self.frames_b64:
-            raise ValueError("Provide only one of clip_gcs_uri or frames_b64")
+        sources = [self.clip_gcs_uri, self.clip_local_path, self.frames_b64]
+        provided = sum(1 for s in sources if s)
+        if provided == 0:
+            raise ValueError("One of clip_gcs_uri, clip_local_path, or frames_b64 is required")
+        if provided > 1:
+            raise ValueError("Provide only one of clip_gcs_uri, clip_local_path, or frames_b64")
         return self
 
 
