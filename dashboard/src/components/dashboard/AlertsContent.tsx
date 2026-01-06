@@ -303,9 +303,6 @@ const AlertsContent = () => {
                 브라우저가 비디오를 지원하지 않습니다.
               </video>
             </div>
-            <p className="text-sm text-muted-foreground mt-2 break-all">
-              {selectedVideo}
-            </p>
           </div>
         </div>
       )}
