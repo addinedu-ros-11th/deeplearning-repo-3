@@ -4,11 +4,11 @@ from sqlalchemy.orm import Session
 from app.api.deps import get_db
 from app.core.security import require_admin_key
 from app.db.models import Review, ReviewStatus
-from app.schemas.review import ReviewOut, ReviewUpdate
+from app.schemas.review import ReviewOut, ReviewCreate, ReviewUpdate
 from app.db.models import (
     TraySession, TraySessionStatus,
     OrderHdr, OrderLine, OrderStatus,
-    MenuItem,
+    MenuItem, Store, Device,
 )
 
 router = APIRouter(dependencies=[Depends(require_admin_key)])
@@ -100,19 +100,69 @@ def _ensure_order_for_session(db: Session, session_id: int, store_id: int, item_
     order.total_amount_won = total
     return order
 
+def _enrich_review(review: Review, db: Session) -> dict:
+    """리뷰에 매장/디바이스 정보 추가"""
+    result = {
+        "review_id": review.review_id,
+        "session_id": review.session_id,
+        "run_id": review.run_id,
+        "status": review.status,
+        "reason": review.reason,
+        "top_k_json": review.top_k_json,
+        "confirmed_items_json": review.confirmed_items_json,
+        "created_at": review.created_at,
+        "resolved_at": review.resolved_at,
+        "resolved_by": review.resolved_by,
+        "store_name": None,
+        "device_code": None,
+    }
+
+    # 세션에서 매장/디바이스 정보 조회
+    session = db.query(TraySession).filter(TraySession.session_id == review.session_id).first()
+    if session:
+        store = db.query(Store).filter(Store.store_id == session.store_id).first()
+        device = db.query(Device).filter(Device.device_id == session.checkout_device_id).first()
+        if store:
+            result["store_name"] = store.name
+        if device:
+            result["device_code"] = device.device_code
+
+    return result
+
 @router.get("/reviews", response_model=list[ReviewOut])
 def list_reviews(status: ReviewStatus | None = ReviewStatus.OPEN, db: Session = Depends(get_db)):
     q = db.query(Review)
     if status:
         q = q.filter(Review.status == status)
-    return q.order_by(Review.created_at.desc()).all()
+    reviews = q.order_by(Review.created_at.desc()).all()
+    return [_enrich_review(r, db) for r in reviews]
+
+@router.post("/reviews", response_model=ReviewOut)
+def create_review(body: ReviewCreate, db: Session = Depends(get_db)):
+    """관리자 호출 등 수동 리뷰 생성"""
+    # 세션 존재 확인
+    session = db.query(TraySession).filter(TraySession.session_id == body.session_id).first()
+    if not session:
+        raise HTTPException(status_code=404, detail="session not found")
+
+    review = Review(
+        session_id=body.session_id,
+        run_id=None,
+        status=ReviewStatus.OPEN,
+        reason=body.reason,
+        created_at=utcnow(),
+    )
+    db.add(review)
+    db.commit()
+    db.refresh(review)
+    return _enrich_review(review, db)
 
 @router.get("/reviews/{review_id}", response_model=ReviewOut)
 def get_review(review_id: int, db: Session = Depends(get_db)):
     r = db.query(Review).filter(Review.review_id == review_id).first()
     if not r:
         raise HTTPException(status_code=404, detail="review not found")
-    return r
+    return _enrich_review(r, db)
 
 @router.patch("/reviews/{review_id}", response_model=ReviewOut)
 def update_review(review_id: int, body: ReviewUpdate, db: Session = Depends(get_db)):
@@ -125,6 +175,15 @@ def update_review(review_id: int, body: ReviewUpdate, db: Session = Depends(get_
 
     # RESOLVED로 바꾸는 순간: 주문 생성 + 세션 종료까지 원자적으로 수행
     if body.status == ReviewStatus.RESOLVED:
+        # ADMIN_CALL은 주문 없이 단순 확인 처리
+        if r.reason == "ADMIN_CALL":
+            r.status = ReviewStatus.RESOLVED
+            r.resolved_at = utcnow()
+            r.resolved_by = body.resolved_by
+            db.commit()
+            db.refresh(r)
+            return _enrich_review(r, db)
+
         if not body.confirmed_items_json:
             raise HTTPException(status_code=400, detail="confirmed_items_json required for RESOLVED")
 

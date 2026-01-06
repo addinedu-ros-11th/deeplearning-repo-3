@@ -38,6 +38,8 @@ export interface ReviewOut {
   created_at: string;
   resolved_at: string | null;
   resolved_by: string | null;
+  store_name: string | null;
+  device_code: string | null;
 }
 
 // CCTV Event Types
@@ -96,7 +98,7 @@ export interface Transaction {
 
 // Alert Types
 export type AlertSeverity = "critical" | "warning" | "normal";
-export type AlertCategory = "payment" | "safety" | "security";
+export type AlertCategory = "payment" | "safety" | "security" | "system";
 
 export interface Alert {
   id: string;

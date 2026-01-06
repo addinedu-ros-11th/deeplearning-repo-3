@@ -9,6 +9,30 @@ export const getHeaders = () => ({
   "X-ADMIN-KEY": ADMIN_KEY,
 });
 
+/**
+ * UTC 타임스탬프를 KST로 변환하여 포맷팅
+ * DB에서 받은 UTC 시간을 한국 시간(KST, UTC+9)으로 표시
+ */
+export function formatToKST(utcTimestamp: string): string {
+  // 서버에서 오는 타임스탬프가 UTC인데 'Z'가 없는 경우 추가
+  let isoString = utcTimestamp;
+  if (!isoString.endsWith("Z") && !isoString.includes("+")) {
+    isoString = isoString + "Z";
+  }
+
+  const date = new Date(isoString);
+
+  return date.toLocaleString("ko-KR", {
+    timeZone: "Asia/Seoul",
+    year: "numeric",
+    month: "2-digit",
+    day: "2-digit",
+    hour: "2-digit",
+    minute: "2-digit",
+    second: "2-digit",
+  });
+}
+
 // Fetch wrapper with default headers
 export async function apiFetch<T>(
   endpoint: string,
