@@ -241,12 +241,12 @@ class InferenceEngine:
         """
         YOLO 모델은 무조건 URI로만 로드합니다.
         - YOLO_MODEL_PATH / settings.YOLO_MODEL_PATH는 완전히 무시
-        - YOLO_MODEL_URI (또는 settings.YOLO_MODEL_URI)만 사용
+        - YOLO_SEG_MODEL_URI (또는 settings.YOLO_SEG_MODEL_URI)만 사용
         - URI에서 내려받아 CACHE_DIR/models 아래에 저장한 "로컬 캐시 경로"를 반환
         """
         yolo_uri = (
             os.getenv("YOLO_SEG_MODEL_URI", "").strip()
-            or str(getattr(settings, "YOLO_MODEL_URI", "") or "").strip()
+            or str(getattr(settings, "YOLO_SEG_MODEL_URI", "") or "").strip()
         )
         if not yolo_uri:
             return None
@@ -312,10 +312,10 @@ class InferenceEngine:
             logging.warning(f"AuxiliaryTools 로드 실패: {e}")
             self.auxiliary_detector = None
 
-        # 이번 데모 정책: prototype은 로컬에서 관리 (Central/GCS에서 끌어오지 않음)
-        if not settings.PROTOTYPE_INDEX_PATH:
-            self.prototype_index = None
-            self.prototype_set_id = None
+        # # 이번 데모 정책: prototype은 로컬에서 관리 (Central/GCS에서 끌어오지 않음)
+        # if not settings.PROTOTYPE_INDEX_PATH:
+        #     self.prototype_index = None
+        #     self.prototype_set_id = None
 
         # 2) YOLO 로드(있으면)
         try:
