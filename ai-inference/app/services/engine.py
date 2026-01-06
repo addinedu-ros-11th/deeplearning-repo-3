@@ -15,6 +15,11 @@ from app.services.prototype_index import PrototypeIndex, load_index
 from app.services.central_client import CentralClient
 from app.services.gcs_utils import download_to
 
+import torch
+import torch.nn as nn
+from torchvision import models, transforms
+from torchvision.models import ResNet50_Weights
+
 
 def _ensure_dir(path: str) -> None:
     os.makedirs(path, exist_ok=True)
@@ -34,37 +39,37 @@ def _env_float(name: str, default: float) -> float:
         return default
 
 
-    def _resolve_yolo_local_path(self) -> str | None:
-        # 1) 로컬 경로 우선
-        yolo_path = (
-            os.getenv("YOLO_MODEL_PATH", "").strip()
-            or str(getattr(settings, "YOLO_MODEL_PATH", "") or "").strip()
-        )
-        if yolo_path:
-            return yolo_path
+# def _resolve_yolo_local_path(self) -> str | None:
+#     # 1) 로컬 경로 우선
+#     yolo_path = (
+#         os.getenv("YOLO_MODEL_PATH", "").strip()
+#         or str(getattr(settings, "YOLO_MODEL_PATH", "") or "").strip()
+#     )
+#     if yolo_path:
+#         return yolo_path
 
-        # 2) URI로 받으면 캐시에 내려받음
-        yolo_uri = (
-            os.getenv("YOLO_MODEL_URI", "").strip()
-            or str(getattr(settings, "YOLO_MODEL_URI", "") or "").strip()
-        )
-        if not yolo_uri:
-            return None
+#     # 2) URI로 받으면 캐시에 내려받음
+#     yolo_uri = (
+#         os.getenv("YOLO_MODEL_URI", "").strip()
+#         or str(getattr(settings, "YOLO_MODEL_URI", "") or "").strip()
+#     )
+#     if not yolo_uri:
+#         return None
 
-        cache_dir = os.path.join(getattr(settings, "CACHE_DIR", "/tmp"), "models")
-        _ensure_dir(cache_dir)
+#     cache_dir = os.path.join(getattr(settings, "CACHE_DIR", "/tmp"), "models")
+#     _ensure_dir(cache_dir)
 
-        parsed = urlparse(yolo_uri)
-        filename = os.path.basename(parsed.path) or "yolo.pt"
-        local_path = os.path.join(cache_dir, filename)
+#     parsed = urlparse(yolo_uri)
+#     filename = os.path.basename(parsed.path) or "yolo.pt"
+#     local_path = os.path.join(cache_dir, filename)
 
-        # 이미 있으면 재사용
-        if os.path.exists(local_path) and os.path.getsize(local_path) > 0:
-            return local_path
+#     # 이미 있으면 재사용
+#     if os.path.exists(local_path) and os.path.getsize(local_path) > 0:
+#         return local_path
 
-        # gs:// 또는 https:// 등 다운로드
-        download_to(yolo_uri, local_path)
-        return local_path
+#     # gs:// 또는 https:// 등 다운로드
+#     download_to(yolo_uri, local_path)
+#     return local_path
 
 
 class InferenceEngine:
@@ -79,8 +84,8 @@ class InferenceEngine:
 
         # env 정책
         self.knn_topk = _env_int("KNN_TOPK", 5)
-        self.unknown_dist_th = _env_float("UNKNOWN_DIST_TH", 0.35)
-        self.margin_th = _env_float("MARGIN_TH", 0.03)
+        self.unknown_dist_th = _env_float("UNKNOWN_DIST_TH", 0.5)
+        self.margin_th = _env_float("MARGIN_TH", 0.04)
 
         self.yolo_imgsz = _env_int("YOLO_IMGSZ", 640)
         self.yolo_conf = _env_float("YOLO_CONF", 0.25)
@@ -88,6 +93,64 @@ class InferenceEngine:
         self.ai_device = os.getenv("AI_DEVICE", "cpu").strip() or "cpu"
 
         self.use_job_queue = os.getenv("AI_USE_JOB_QUEUE", "1").strip() == "1"
+
+        # ---- Embedding encoder (프로토타입 생성과 동일하게 맞춰야 함) ----
+        # prototype_index가 ResNet50(2048-d) 기반이면 아래 설정이 맞습니다.
+        self.emb_img_size = _env_int("EMB_IMG_SIZE", 224)
+        self.emb_device = os.getenv("EMB_DEVICE", self.ai_device).strip() or "cpu"
+
+        self.encoder = None
+        self.emb_tfm = None
+        try:
+            w = ResNet50_Weights.IMAGENET1K_V2
+            m = models.resnet50(weights=w)
+            m.fc = nn.Identity()
+            m.eval().to(self.emb_device)
+
+            tf = transforms.Compose([
+                transforms.Resize((self.emb_img_size, self.emb_img_size)),
+                transforms.ToTensor(),
+                transforms.Normalize(mean=(0.485, 0.456, 0.406),
+                                     std=(0.229, 0.224, 0.225)),
+            ])
+
+            self.encoder = m
+            self.emb_tfm = tf
+        except Exception:
+            # encoder 로딩 실패하면 None 유지 (서버가 죽지 않도록)
+            self.encoder = None
+            self.emb_tfm = None
+
+
+    def _resolve_yolo_local_path(self) -> str | None:
+        """
+        YOLO 모델은 무조건 URI로만 로드합니다.
+        - YOLO_MODEL_PATH / settings.YOLO_MODEL_PATH는 완전히 무시
+        - YOLO_MODEL_URI (또는 settings.YOLO_MODEL_URI)만 사용
+        - URI에서 내려받아 CACHE_DIR/models 아래에 저장한 "로컬 캐시 경로"를 반환
+        """
+        yolo_uri = (
+            os.getenv("YOLO_MODEL_URI", "").strip()
+            or str(getattr(settings, "YOLO_MODEL_URI", "") or "").strip()
+        )
+        if not yolo_uri:
+            return None
+
+        cache_dir = os.path.join(getattr(settings, "CACHE_DIR", "/tmp"), "models")
+        _ensure_dir(cache_dir)
+
+        parsed = urlparse(yolo_uri)
+        filename = os.path.basename(parsed.path) or "yolo.pt"
+        local_path = os.path.join(cache_dir, filename)
+
+        # 캐시 재사용 (기본)
+        force = os.getenv("YOLO_MODEL_FORCE_DOWNLOAD", "0").strip() == "1"
+        if (not force) and os.path.exists(local_path) and os.path.getsize(local_path) > 0:
+            return local_path
+
+        # gs:// 또는 https:// 등 다운로드 (download_to가 처리)
+        download_to(yolo_uri, local_path)
+        return local_path
 
 
     def startup_load(self) -> None:
@@ -119,7 +182,8 @@ class InferenceEngine:
             if yolo_local:
                 from ultralytics import YOLO  # type: ignore
                 self.yolo = YOLO(yolo_local)
-        except Exception:
+        except Exception as e:
+            print("[yolo] load failed:", repr(e))
             self.yolo = None
 
     def infer_tray(self, payload: dict[str, Any]) -> dict[str, Any]:
@@ -382,7 +446,7 @@ class InferenceEngine:
                 c = float(conf_np[i]) if conf_np is not None and i < len(conf_np) else 0.0
 
                 crop = img[y1i:y2i, x1i:x2i]
-                q = self._embed_crop_simple(crop, self.prototype_index.vectors.shape[1])
+                q = self._embed_crop_resnet50(crop, self.prototype_index.vectors.shape[1])
 
                 topk = self.prototype_index.knn(q, k=self.knn_topk)
                 if not topk:
@@ -414,6 +478,35 @@ class InferenceEngine:
                 inst_id += 1
 
         return out
+
+    @torch.no_grad()
+    def _embed_crop_resnet50(self, crop: np.ndarray, dim: int) -> np.ndarray:
+        """
+        crop(np.ndarray RGB)를 ResNet50 임베딩(2048-d)으로 변환 후 L2 normalize.
+        dim은 prototype_index dimension과 맞아야 합니다.
+        """
+        if self.encoder is None or self.emb_tfm is None:
+            # encoder가 없으면 기존 simple로 fallback
+            return self._embed_crop_simple(crop, dim)
+
+        if crop is None or crop.size == 0:
+            return np.zeros((dim,), dtype=np.float32)
+
+        # PIL 변환 (현재 img는 PIL->np.array(RGB)이므로 그대로 RGB로 가정)
+        im = Image.fromarray(crop.astype(np.uint8)).convert("RGB")
+        x = self.emb_tfm(im).unsqueeze(0).to(self.emb_device)  # (1,3,224,224)
+        y = self.encoder(x)                                    # (1,2048)
+        y = y / (y.norm(dim=1, keepdim=True) + 1e-12)          # L2 normalize
+
+        v = y.squeeze(0).detach().cpu().numpy().astype(np.float32)
+
+        # dim 체크 (prototype_index가 2048이 아닐 수도 있으니)
+        if v.shape[0] != dim:
+            # 차원이 다르면 fallback (혹은 여기서 예외로 중단해도 됨)
+            return self._embed_crop_simple(crop, dim)
+
+        return v
+
 
     def _embed_crop_simple(self, crop: np.ndarray, dim: int) -> np.ndarray:
         """
