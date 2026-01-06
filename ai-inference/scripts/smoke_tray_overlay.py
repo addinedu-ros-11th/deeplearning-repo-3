@@ -130,8 +130,8 @@ if __name__ == "__main__":
     print("YOLO loaded:", eng.yolo is not None)
     print("YOLO params:", eng.yolo_imgsz, eng.yolo_conf, eng.yolo_iou, eng.ai_device)
     print("KNN params:", eng.knn_topk, eng.unknown_dist_th, eng.margin_th)
-    print("has _resolve_yolo_local_path:", hasattr(eng, "_resolve_yolo_local_path"))
-    print("YOLO_MODEL_URI (os.getenv):", os.getenv("YOLO_MODEL_URI"))
+    print("has _resolve_yolo_seg_local_path:", hasattr(eng, "_resolve_yolo_seg_local_path"))
+    print("YOLO_SEG_MODEL_URI (os.getenv):", os.getenv("YOLO_SEG_MODEL_URI"))
 
     # 2) 테스트 이미지 폴더 경로 (본인 환경에 맞게 수정)
     input_dir = "/home/ram/Downloads/TEST"
