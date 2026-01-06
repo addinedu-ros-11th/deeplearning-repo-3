@@ -122,7 +122,7 @@ class FallDownDetection:
         h, w, _ = self.frame_buffer[0].shape
         out = cv2.VideoWriter(
             clip_path,
-            cv2.VideoWriter_fourcc(*"mp4v"),
+            cv2.VideoWriter_fourcc(*"avc1"),
             self.fps,
             (w, h)
         )

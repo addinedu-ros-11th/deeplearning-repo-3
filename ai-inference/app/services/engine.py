@@ -508,11 +508,21 @@ class InferenceEngine:
             start_frame = max(0, violence_frame - clip_seconds * fps)
             end_frame = min(len(frames), violence_frame + clip_seconds * fps)
 
+            # mp4v로 임시 저장 후 ffmpeg로 H.264 변환
+            temp_path = local_clip_path.replace('.mp4', '_temp.mp4')
             fourcc = cv2.VideoWriter_fourcc(*'mp4v')
-            out = cv2.VideoWriter(local_clip_path, fourcc, fps, (width, height))
+            out = cv2.VideoWriter(temp_path, fourcc, fps, (width, height))
             for f in frames[start_frame:end_frame]:
                 out.write(f)
             out.release()
+
+            import subprocess
+            subprocess.run([
+                'ffmpeg', '-y', '-i', temp_path,
+                '-c:v', 'libx264', '-preset', 'fast', '-crf', '23',
+                local_clip_path
+            ], capture_output=True)
+            os.remove(temp_path)
 
             violence_count = sum(1 for p in probabilities if p >= self.violence_classifier.threshold)
             return {
@@ -563,11 +573,21 @@ class InferenceEngine:
             start_frame = max(0, fall_frame - clip_seconds * fps)
             end_frame = min(len(frames), fall_frame + clip_seconds * fps)
 
+            # mp4v로 임시 저장 후 ffmpeg로 H.264 변환 (브라우저 호환)
+            temp_path = local_clip_path.replace('.mp4', '_temp.mp4')
             fourcc = cv2.VideoWriter_fourcc(*'mp4v')
-            out = cv2.VideoWriter(local_clip_path, fourcc, fps, (width, height))
+            out = cv2.VideoWriter(temp_path, fourcc, fps, (width, height))
             for f in frames[start_frame:end_frame]:
                 out.write(f)
             out.release()
+
+            import subprocess
+            subprocess.run([
+                'ffmpeg', '-y', '-i', temp_path,
+                '-c:v', 'libx264', '-preset', 'fast', '-crf', '23',
+                local_clip_path
+            ], capture_output=True)
+            os.remove(temp_path)
 
             return {
                 "is_fall": True,
@@ -613,11 +633,21 @@ class InferenceEngine:
             start_frame = max(0, detected_frame - clip_seconds * fps)
             end_frame = min(len(frames), detected_frame + clip_seconds * fps)
 
+            # mp4v로 임시 저장 후 ffmpeg로 H.264 변환 (브라우저 호환)
+            temp_path = local_clip_path.replace('.mp4', '_temp.mp4')
             fourcc = cv2.VideoWriter_fourcc(*'mp4v')
-            out = cv2.VideoWriter(local_clip_path, fourcc, fps, (width, height))
+            out = cv2.VideoWriter(temp_path, fourcc, fps, (width, height))
             for f in frames[start_frame:end_frame]:
                 out.write(f)
             out.release()
+
+            import subprocess
+            subprocess.run([
+                'ffmpeg', '-y', '-i', temp_path,
+                '-c:v', 'libx264', '-preset', 'fast', '-crf', '23',
+                local_clip_path
+            ], capture_output=True)
+            os.remove(temp_path)
 
             return {
                 "detected": True,

@@ -262,7 +262,7 @@ class ViolenceClassification:
             start_frame = max(0, violence_frame - clip_seconds * fps)
             end_frame = min(len(frames_buffer), violence_frame + clip_seconds * fps)
 
-            fourcc = cv2.VideoWriter_fourcc(*'mp4v')
+            fourcc = cv2.VideoWriter_fourcc(*'avc1')
             out = cv2.VideoWriter(clip_path, fourcc, fps, (width, height))
 
             for f in frames_buffer[start_frame:end_frame]:

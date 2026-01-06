@@ -22,6 +22,7 @@ class CctvEventClipOut(ORMBase):
     clip_id: int
     event_id: int
     clip_gcs_uri: str
+    clip_signed_url: str | None = None
     clip_start_at: datetime
     clip_end_at: datetime
     created_at: datetime

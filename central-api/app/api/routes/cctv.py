@@ -4,12 +4,41 @@ from sqlalchemy.orm import Session, joinedload
 from app.api.deps import get_db
 from app.core.security import require_admin_key
 from app.db.models import Store, Device, DeviceType, CctvEvent, CctvEventClip
-from app.schemas.cctv import CctvEventCreate, CctvEventOut
+from app.schemas.cctv import CctvEventCreate, CctvEventOut, CctvEventClipOut
+from app.services.gcs import generate_signed_url
 
 router = APIRouter(dependencies=[Depends(require_admin_key)])
 
 def utcnow():
     return datetime.now(timezone.utc).replace(tzinfo=None)
+
+def add_signed_urls_to_event(event: CctvEvent) -> dict:
+    """CctvEvent를 dict로 변환하고 각 클립에 서명된 URL 추가"""
+    event_dict = {
+        "event_id": event.event_id,
+        "store_id": event.store_id,
+        "cctv_device_id": event.cctv_device_id,
+        "event_type": event.event_type,
+        "confidence": event.confidence,
+        "status": event.status,
+        "started_at": event.started_at,
+        "ended_at": event.ended_at,
+        "meta_json": event.meta_json,
+        "created_at": event.created_at,
+        "clips": [],
+    }
+    for clip in event.clips:
+        clip_dict = {
+            "clip_id": clip.clip_id,
+            "event_id": clip.event_id,
+            "clip_gcs_uri": clip.clip_gcs_uri,
+            "clip_signed_url": generate_signed_url(clip.clip_gcs_uri, expiration_minutes=60),
+            "clip_start_at": clip.clip_start_at,
+            "clip_end_at": clip.clip_end_at,
+            "created_at": clip.created_at,
+        }
+        event_dict["clips"].append(clip_dict)
+    return event_dict
 
 @router.post("/stores/{store_code}/cctv/{device_code}/events", response_model=CctvEventOut)
 def create_cctv_event(store_code: str, device_code: str, body: CctvEventCreate, db: Session = Depends(get_db)):
@@ -51,7 +80,7 @@ def create_cctv_event(store_code: str, device_code: str, body: CctvEventCreate, 
     db.commit()
 
     ev2 = db.query(CctvEvent).options(joinedload(CctvEvent.clips)).filter(CctvEvent.event_id == ev.event_id).first()
-    return ev2
+    return add_signed_urls_to_event(ev2)
 
 @router.get("/cctv/events", response_model=list[CctvEventOut])
 def list_cctv_events(
@@ -70,11 +99,12 @@ def list_cctv_events(
         q = q.filter(CctvEvent.created_at >= from_)
     if to:
         q = q.filter(CctvEvent.created_at < to)
-    return q.order_by(CctvEvent.created_at.desc()).all()
+    events = q.order_by(CctvEvent.created_at.desc()).all()
+    return [add_signed_urls_to_event(ev) for ev in events]
 
 @router.get("/cctv/events/{event_id}", response_model=CctvEventOut)
 def get_cctv_event(event_id: int, db: Session = Depends(get_db)):
     ev = db.query(CctvEvent).options(joinedload(CctvEvent.clips)).filter(CctvEvent.event_id == event_id).first()
     if not ev:
         raise HTTPException(status_code=404, detail="event not found")
-    return ev
+    return add_signed_urls_to_event(ev)

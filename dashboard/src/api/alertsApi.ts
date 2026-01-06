@@ -87,22 +87,14 @@ function getEventMessage(eventType: CctvEventType): string {
   }
 }
 
-// gs://bucket/path → https://storage.googleapis.com/bucket/path
-function gcsToPublicUrl(gcsUri: string): string {
-  if (gcsUri.startsWith("gs://")) {
-    return gcsUri.replace("gs://", "https://storage.googleapis.com/");
-  }
-  return gcsUri;
-}
-
 // central-api CctvEvent -> dashboard Alert 변환
 function cctvEventToAlert(event: CctvEventOut): Alert {
   const type = getEventSeverity(event.event_type);
   const message = getEventMessage(event.event_type);
 
-  // 첫 번째 클립의 GCS URI를 공개 URL로 변환
+  // 첫 번째 클립의 서명된 URL 사용
   const clipUrl = event.clips.length > 0
-    ? gcsToPublicUrl(event.clips[0].clip_gcs_uri)
+    ? event.clips[0].clip_signed_url
     : undefined;
 
   return {
