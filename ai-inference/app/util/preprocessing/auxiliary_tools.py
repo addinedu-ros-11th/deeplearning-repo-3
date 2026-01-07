@@ -37,7 +37,7 @@ class AuxiliaryTools:
         # --- 로직 제어 변수 ---
         self.conf_threshold = 0.8           # 신뢰도 임계값
         self.detection_counter = 0          # 연속 감지 카운터
-        self.min_detection_threshold = 5     # 최소 연속 프레임 수
+        self.min_detection_threshold = 3     # 최소 연속 프레임 수
         self.last_alert_time = 0            # 마지막 알람 시각 (timestamp)
         self.alert_cooldown = 180           # 쿨타임 (3분 = 180초)
         # ---------------------
@@ -85,7 +85,7 @@ class AuxiliaryTools:
                 
                 if elapsed_time > self.alert_cooldown:
                     # 최종 감지 확정 및 알람 발생
-                    self.logger.warning(f"★ Auxiliary 객체(휠체어 등) 최종 확정 감지! (연속 {self.detection_counter}프레임)")
+                    self.logger.warning(f"Auxiliary 객체(휠체어 등) 최종 확정 감지! (연속 {self.detection_counter}프레임)")
                     
                     result["detected"] = True
                     result["num_objects"] = len(boxes)
