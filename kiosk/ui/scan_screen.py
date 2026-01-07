@@ -532,16 +532,10 @@ class ScanScreen(QWidget):
 
         logging.info(f"[AI추론] 결과: decision={decision}, result_json={result_json}")
 
-        # 실제 환경에선 아래 주석 해제 필요
         if decision == "AUTO" or decision == "REVIEW":
             # 인식된 아이템을 장바구니에 추가 + 결제 버튼 활성화
             self.process_inference_result(result_json)
             self.pay_btn.setEnabled(True)
-            
-            # 아이템 표시하되 결제 버튼 비활성화
-            logging.warning("[AI추론] 수동 검토 필요 - 결제 버튼 비활성화")
-            self.process_inference_result(result_json)
-            self.pay_btn.setEnabled(False)
             
         else:
             logging.warning(f"[AI추론] 알 수 없는 결과: {decision}")
