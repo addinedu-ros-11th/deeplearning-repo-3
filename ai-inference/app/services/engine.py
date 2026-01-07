@@ -70,8 +70,8 @@ class InferenceEngine:
 
         # env 정책
         self.knn_topk = _env_int("KNN_TOPK", 5)
-        self.unknown_dist_th = _env_float("UNKNOWN_DIST_TH", 0.35)
-        self.margin_th = _env_float("MARGIN_TH", 0.03)
+        self.unknown_dist_th = _env_float("UNKNOWN_DIST_TH", 0.5)
+        self.margin_th = _env_float("MARGIN_TH", 0.04)
 
         self.yolo_imgsz = _env_int("YOLO_IMGSZ", 640)
         self.yolo_conf = _env_float("YOLO_CONF", 0.25)
@@ -79,6 +79,34 @@ class InferenceEngine:
         self.ai_device = os.getenv("AI_DEVICE", "cpu").strip() or "cpu"
 
         self.use_job_queue = os.getenv("AI_USE_JOB_QUEUE", "1").strip() == "1"
+
+        # ---- Embedding encoder (프로토타입 생성과 동일하게 맞춰야 함) ----
+        # prototype_index가 ResNet50(2048-d) 기반이면 아래 설정이 맞습니다.
+        self.emb_img_size = _env_int("EMB_IMG_SIZE", 224)
+        self.emb_device = os.getenv("EMB_DEVICE", self.ai_device).strip() or "cpu"
+
+        self.encoder = None
+        self.emb_tfm = None
+        try:
+            w = ResNet50_Weights.IMAGENET1K_V2
+            m = models.resnet50(weights=w)
+            m.fc = nn.Identity()
+            m.eval().to(self.emb_device)
+
+            tf = transforms.Compose([
+                transforms.Resize((self.emb_img_size, self.emb_img_size)),
+                transforms.ToTensor(),
+                transforms.Normalize(mean=(0.485, 0.456, 0.406),
+                                     std=(0.229, 0.224, 0.225)),
+            ])
+
+            self.encoder = m
+            self.emb_tfm = tf
+        except Exception:
+            # encoder 로딩 실패하면 None 유지 (서버가 죽지 않도록)
+            self.encoder = None
+            self.emb_tfm = None
+
 
     def _resolve_yolo_local_path(self) -> str | None:
         """YOLO 모델 경로 결정: 로컬 우선, 없으면 GCS에서 다운로드"""
@@ -119,9 +147,60 @@ class InferenceEngine:
         self.fall_detector: FallDownDetection | None = None
         self.auxiliary_detector: AuxiliaryTools | None = None
 
+
+    def _resolve_yolo_seg_local_path(self) -> str | None:
+        """
+        YOLO 모델은 무조건 URI로만 로드합니다.
+        - YOLO_MODEL_PATH / settings.YOLO_MODEL_PATH는 완전히 무시
+        - YOLO_SEG_MODEL_URI (또는 settings.YOLO_SEG_MODEL_URI)만 사용
+        - URI에서 내려받아 CACHE_DIR/models 아래에 저장한 "로컬 캐시 경로"를 반환
+        """
+        yolo_uri = (
+            os.getenv("YOLO_SEG_MODEL_URI", "").strip()
+            or str(getattr(settings, "YOLO_SEG_MODEL_URI", "") or "").strip()
+        )
+        if not yolo_uri:
+            return None
+
+        cache_dir = os.path.join(getattr(settings, "CACHE_DIR", "/tmp"), "models")
+        _ensure_dir(cache_dir)
+
+        parsed = urlparse(yolo_uri)
+        filename = os.path.basename(parsed.path) or "yolo.pt"
+        local_path = os.path.join(cache_dir, filename)
+
+        # 캐시 재사용 (기본)
+        force = os.getenv("YOLO_MODEL_FORCE_DOWNLOAD", "0").strip() == "1"
+        if (not force) and os.path.exists(local_path) and os.path.getsize(local_path) > 0:
+            return local_path
+
+        # gs:// 또는 https:// 등 다운로드 (download_to가 처리)
+        download_to(yolo_uri, local_path)
+        return local_path
+
+
     def startup_load(self) -> None:
         if self.mock:
             return
+        
+        # 1) prototype_set 기반 통합 인덱스 로드
+        try:
+            npy_uri, meta_uri, psid = self._resolve_active_prototype_index_uris()
+            if npy_uri and meta_uri:
+                cache_dir = os.path.join(getattr(settings, "CACHE_DIR", "/tmp"), "prototype_index")
+                _ensure_dir(cache_dir)
+
+                npy_local = self._fetch_uri_to_local(npy_uri, cache_dir)
+                meta_local = self._fetch_uri_to_local(meta_uri, cache_dir)
+
+                self.prototype_index = load_index(npy_local, meta_local)
+                self.prototype_set_id = psid
+            else:
+                self.prototype_index = None
+                self.prototype_set_id = None
+        except Exception:
+            self.prototype_index = None
+            self.prototype_set_id = None
 
         # CCTV 폭력 감지 모델 로드 (GCS에서)
         try:
@@ -144,14 +223,15 @@ class InferenceEngine:
             logging.warning(f"AuxiliaryTools 로드 실패: {e}")
             self.auxiliary_detector = None
 
-        # 이번 데모 정책: prototype은 로컬에서 관리 (Central/GCS에서 끌어오지 않음)
-        if not settings.PROTOTYPE_INDEX_PATH:
-            self.prototype_index = None
-            self.prototype_set_id = None
+        # # 이번 데모 정책: prototype은 로컬에서 관리 (Central/GCS에서 끌어오지 않음)
+        # if not settings.PROTOTYPE_INDEX_PATH:
+        #     self.prototype_index = None
+        #     self.prototype_set_id = None
 
         # 2) YOLO 로드(있으면)
         try:
             yolo_local = self._resolve_yolo_local_path()
+            yolo_local = self._resolve_yolo_seg_local_path()
             if yolo_local:
                 from ultralytics import YOLO  # type: ignore
                 self.yolo = YOLO(yolo_local)
@@ -579,54 +659,117 @@ class InferenceEngine:
         return {"is_fall": False, "confidence": 0.0, "local_clip_path": None, "extra_meta": {}}
 
     def _run_auxiliary_inference_frames(
-        self,
-        frames: list[np.ndarray],
-        fps: int,
-        width: int,
-        height: int,
-        now: datetime,
-    ) -> dict[str, Any]:
-        """공유 프레임으로 Auxiliary 감지 추론"""
-        detected = False
-        detected_frame = None
-        skip_frames = 0
+            self,
+            frames: list[np.ndarray],
+            fps: int,
+            width: int,
+            height: int,
+            now: datetime,
+        ) -> dict[str, Any]:
+            """공유 프레임으로 Auxiliary 감지 추론"""
+            detected = False
+            detected_frame = None
+            skip_frames = 0
 
-        for i, frame in enumerate(frames):
-            if skip_frames > 0:
-                skip_frames -= 1
-                continue
+            for i, frame in enumerate(frames):
+                if skip_frames > 0:
+                    skip_frames -= 1
+                    continue
 
-            result = self.auxiliary_detector.process_frame(frame)
+                result = self.auxiliary_detector.process_frame(frame)
 
-            if result.get("detected") and not detected:
-                detected = True
-                detected_frame = i
-                skip_frames = fps * 10
+                if result.get("detected") and not detected:
+                    detected = True
+                    detected_frame = i
+                    skip_frames = fps * 10
 
-        if detected:
-            timestamp = now.strftime("%Y%m%d_%H%M%S")
-            local_clip_dir = os.path.join(settings.CACHE_DIR, "auxiliary_clips")
-            _ensure_dir(local_clip_dir)
-            local_clip_path = os.path.join(local_clip_dir, f"cctv_auxiliary_{timestamp}.mp4")
+            if detected:
+                timestamp = now.strftime("%Y%m%d_%H%M%S")
+                local_clip_dir = os.path.join(settings.CACHE_DIR, "auxiliary_clips")
+                _ensure_dir(local_clip_dir)
+                local_clip_path = os.path.join(local_clip_dir, f"cctv_auxiliary_{timestamp}.mp4")
 
-            clip_seconds = 5
-            start_frame = max(0, detected_frame - clip_seconds * fps)
-            end_frame = min(len(frames), detected_frame + clip_seconds * fps)
+                clip_seconds = 5
+                start_frame = max(0, detected_frame - clip_seconds * fps)
+                end_frame = min(len(frames), detected_frame + clip_seconds * fps)
 
-            fourcc = cv2.VideoWriter_fourcc(*'mp4v')
-            out = cv2.VideoWriter(local_clip_path, fourcc, fps, (width, height))
-            for f in frames[start_frame:end_frame]:
-                out.write(f)
-            out.release()
+                fourcc = cv2.VideoWriter_fourcc(*'mp4v')
+                out = cv2.VideoWriter(local_clip_path, fourcc, fps, (width, height))
+                for f in frames[start_frame:end_frame]:
+                    out.write(f)
+                out.release()
 
-            return {
-                "detected": True,
-                "confidence": 1.0,
-                "local_clip_path": local_clip_path,
-                "extra_meta": {"source": "shared_frames"},
-            }
+                return {
+                    "detected": True,
+                    "confidence": 1.0,
+                    "local_clip_path": local_clip_path,
+                    "extra_meta": {"source": "shared_frames"},
+                }
 
-        return {"detected": False, "confidence": 0.0, "local_clip_path": None, "extra_meta": {}}
+            return {"detected": False, "confidence": 0.0, "local_clip_path": None, "extra_meta": {}}
+
+
+    @torch.no_grad()
+    def _embed_crop_resnet50(self, crop: np.ndarray, dim: int) -> np.ndarray:
+        """
+        crop(np.ndarray RGB)를 ResNet50 임베딩(2048-d)으로 변환 후 L2 normalize.
+        dim은 prototype_index dimension과 맞아야 합니다.
+        """
+        if self.encoder is None or self.emb_tfm is None:
+            # encoder가 없으면 기존 simple로 fallback
+            return self._embed_crop_simple(crop, dim)
+
+        if crop is None or crop.size == 0:
+            return np.zeros((dim,), dtype=np.float32)
+
+        # PIL 변환 (현재 img는 PIL->np.array(RGB)이므로 그대로 RGB로 가정)
+        im = Image.fromarray(crop.astype(np.uint8)).convert("RGB")
+        x = self.emb_tfm(im).unsqueeze(0).to(self.emb_device)  # (1,3,224,224)
+        y = self.encoder(x)                                    # (1,2048)
+        y = y / (y.norm(dim=1, keepdim=True) + 1e-12)          # L2 normalize
+
+        v = y.squeeze(0).detach().cpu().numpy().astype(np.float32)
+
+        # dim 체크 (prototype_index가 2048이 아닐 수도 있으니)
+        if v.shape[0] != dim:
+            # 차원이 다르면 fallback (혹은 여기서 예외로 중단해도 됨)
+            return self._embed_crop_simple(crop, dim)
+
+        return v
+
+
+    def _embed_crop_simple(self, crop: np.ndarray, dim: int) -> np.ndarray:
+        """
+        외부 임베딩 모델이 아직 없더라도 서버가 깨지지 않도록,
+        numpy/PIL만으로 동작하는 간단한(결정론적) 임베딩을 생성합니다.
+        - dim은 prototype_index의 vector dimension에 맞춥니다.
+        """
+        if dim <= 0:
+            return np.zeros((0,), dtype=np.float32)
+
+        if crop is None or crop.size == 0:
+            v = np.zeros((dim,), dtype=np.float32)
+            return v
+
+        try:
+            im = Image.fromarray(crop.astype(np.uint8)).convert("RGB").resize((32, 32))
+            arr = np.asarray(im).astype(np.float32) / 255.0
+            flat = arr.reshape(-1)  # 32*32*3 = 3072
+        except Exception:
+            v = np.zeros((dim,), dtype=np.float32)
+            return v
+
+        seg = int(np.ceil(flat.size / dim)) if dim > 0 else 1
+        if seg <= 0:
+            seg = 1
+        pad = dim * seg - flat.size
+        if pad > 0:
+            flat = np.pad(flat, (0, pad), mode="constant")
+        v = flat.reshape(dim, seg).mean(axis=1).astype(np.float32)
+
+        n = float(np.linalg.norm(v) + 1e-12)
+        v = v / n
+        return v
 
     # -----------------------------
     # prototype_set 기반 로딩 helpers
@@ -906,57 +1049,112 @@ class InferenceEngine:
             return "REVIEW", margin
         return "AUTO", margin
 
-    def _infer_instances(self, img_rgb: np.ndarray) -> list[dict[str, Any]]:
-        if not self.yolo or not self.embed_model or not self.prototype_index:
+    # -----------------------------
+    # YOLO seg -> crop -> embedding -> kNN -> gating
+    # -----------------------------
+    def _infer_instances(self, img: np.ndarray) -> list[dict[str, Any]]:
+        """
+        반환 instances 형식(예시):
+        {
+          "instance_id": 1,
+          "confidence": 0.9,
+          "bbox": [x1,y1,x2,y2],
+          "label_text": "item-101",
+          "top_k": [{"item_id": 101, "distance": 0.12}, ...],
+          "best_item_id": 101,
+          "match_distance": 0.12,
+          "match_margin": 0.04,
+          "state": "AUTO|REVIEW|UNKNOWN",
+          "qty": 1
+        }
+        """
+        if not self.prototype_index:
             return []
 
-        # Ultralytics는 numpy 입력이 BGR 기준인 케이스가 있어 안전하게 변환
-        img_bgr = img_rgb[:, :, ::-1].copy()
-
-        # YOLO seg
-        res = self.yolo.predict(
-            source=img_bgr,
-            imgsz=int(getattr(settings, "YOLO_IMGSZ", 640)),
-            conf=float(getattr(settings, "YOLO_CONF", 0.25)),
-            iou=float(getattr(settings, "YOLO_IOU", 0.7)),
-            device=self.device,
-            verbose=False,
-        )[0]
-
-        if res.masks is None or res.boxes is None or len(res.boxes) == 0:
+        if self.yolo is None:
             return []
 
-        masks = res.masks.data.detach().cpu().numpy()  # (n,H,W)
-        boxes = res.boxes.xyxy.detach().cpu().numpy()  # (n,4)
-        confs = res.boxes.conf.detach().cpu().numpy()  # (n,)
+        H, W = int(img.shape[0]), int(img.shape[1])
+        out: list[dict[str, Any]] = []
 
-        instances: list[dict[str, Any]] = []
-        k = int(getattr(settings, "KNN_TOPK", 5))
+        try:
+            # ultralytics는 입력을 np.ndarray(BGR/RGB)로 받아도 동작하는 경우가 많지만,
+            # 여기서는 PIL 경유 없이 그대로 전달합니다.
+            results = self.yolo.predict(
+                source=img,
+                imgsz=self.yolo_imgsz,
+                conf=self.yolo_conf,
+                iou=self.yolo_iou,
+                device=self.ai_device,
+                verbose=False,
+            )
+        except Exception:
+            return []
 
-        for i in range(len(confs)):
-            crop_rgb = self._masked_crop_rgb(img_rgb, masks[i], boxes[i])
-            q = self._embed_rgb(crop_rgb)
+        if not results:
+            return []
 
-            topk = self.prototype_index.knn(q, k=k)  # [(item_id, dist), ...]
-            if not topk:
+        inst_id = 1
+        for r in results:
+            boxes = getattr(r, "boxes", None)
+            if boxes is None:
                 continue
 
-            best_item, d1 = topk[0]
-            d2 = topk[1][1] if len(topk) > 1 else (d1 + 1.0)
+            xyxy = getattr(boxes, "xyxy", None)
+            conf = getattr(boxes, "conf", None)
 
-            state, margin = self._gate(float(d1), float(d2))
+            if xyxy is None:
+                continue
 
-            instances.append({
-                "instance_id": len(instances) + 1,
-                "confidence": float(confs[i]),
-                "bbox": [int(x) for x in boxes[i].tolist()],
-                "label_text": "",  # 또는 f"item-{int(best_item)}"
-                "top_k": [{"item_id": int(it), "distance": float(d)} for it, d in topk],
-                "best_item_id": int(best_item),
-                "match_distance": float(d1),
-                "match_margin": float(margin),
-                "state": state,
-                "qty": 1,
-            })
+            xyxy_np = xyxy.detach().cpu().numpy() if hasattr(xyxy, "detach") else np.array(xyxy)
+            conf_np = None
+            if conf is not None:
+                conf_np = conf.detach().cpu().numpy() if hasattr(conf, "detach") else np.array(conf)
 
-        return instances
+            for i in range(xyxy_np.shape[0]):
+                x1, y1, x2, y2 = xyxy_np[i].tolist()
+
+                # clamp + int
+                x1i = max(0, min(W - 1, int(x1)))
+                y1i = max(0, min(H - 1, int(y1)))
+                x2i = max(0, min(W, int(x2)))
+                y2i = max(0, min(H, int(y2)))
+
+                if x2i <= x1i or y2i <= y1i:
+                    continue
+
+                c = float(conf_np[i]) if conf_np is not None and i < len(conf_np) else 0.0
+
+                crop = img[y1i:y2i, x1i:x2i]
+                q = self._embed_crop_resnet50(crop, self.prototype_index.vectors.shape[1])
+
+                topk = self.prototype_index.knn(q, k=self.knn_topk)
+                if not topk:
+                    continue
+
+                best_item, d1 = topk[0]
+                d2 = topk[1][1] if len(topk) > 1 else (d1 + 1.0)
+                margin = float(d2 - d1)
+
+                if float(d1) > float(self.unknown_dist_th):
+                    state = "UNKNOWN"
+                else:
+                    state = "AUTO" if margin >= float(self.margin_th) else "REVIEW"
+
+                out.append(
+                    {
+                        "instance_id": inst_id,
+                        "confidence": float(c),
+                        "bbox": [x1i, y1i, x2i, y2i],
+                        "label_text": f"item-{int(best_item)}",
+                        "top_k": [{"item_id": int(ii), "distance": float(dd)} for ii, dd in topk],
+                        "best_item_id": int(best_item),
+                        "match_distance": float(d1),
+                        "match_margin": margin,
+                        "state": state,
+                        "qty": 1,
+                    }
+                )
+                inst_id += 1
+
+        return out
