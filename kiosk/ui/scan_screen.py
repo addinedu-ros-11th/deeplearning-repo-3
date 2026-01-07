@@ -37,7 +37,35 @@ class ScanScreen(QWidget):
 
         self.init_ui()
         self.create_session()
-        
+    
+    def showEvent(self, event):
+        super().showEvent(event)
+
+        # 기존 카메라 정리
+        self.stop_camera()
+
+        # 상태 초기화
+        self.selected_items = []
+        self.is_inferring = False
+        self.current_frame = None
+        self.pending_items = []
+
+        # 트레이 감지 상태 초기화
+        self.tray_detected = False
+        self.stable_count = 0
+
+        # 장바구니 데이터 초기화
+        self.data.items = []
+
+        # UI 업데이트
+        self.update_item_list()
+
+        # 새 세션 생성 (세션 생성 완료 후 카메라 시작됨)
+        self.create_session()
+
+        logging.info("[ScanScreen] 화면 새로고침 완료")
+
+
     def create_session(self):
         """서버에 새 세션 생성 요청 (비동기)"""
         self.session_uuid = str(uuid.uuid4())
@@ -505,12 +533,11 @@ class ScanScreen(QWidget):
         logging.info(f"[AI추론] 결과: decision={decision}, result_json={result_json}")
 
         # 실제 환경에선 아래 주석 해제 필요
-        if decision == "AUTO":
+        if decision == "AUTO" or decision == "REVIEW":
             # 인식된 아이템을 장바구니에 추가 + 결제 버튼 활성화
             self.process_inference_result(result_json)
             self.pay_btn.setEnabled(True)
             
-        elif decision == "REVIEW":
             # 아이템 표시하되 결제 버튼 비활성화
             logging.warning("[AI추론] 수동 검토 필요 - 결제 버튼 비활성화")
             self.process_inference_result(result_json)
