@@ -14,9 +14,15 @@ sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), "..")
 from dotenv import load_dotenv
 
 ROOT = os.path.abspath(os.path.join(os.path.dirname(__file__), ".."))  # ai-inference 루트
-load_dotenv(os.path.join(ROOT, ".env"))
+load_dotenv(os.path.join(ROOT, ".env"), override=True)
+
+import app.services.engine as eng_mod
+print("engine.py =", eng_mod.__file__)
+print("env now   =", os.getenv("KNN_TOPK"), os.getenv("UNKNOWN_DIST_TH"), os.getenv("MARGIN_TH"))
 
 from app.services.engine import InferenceEngine
+eng = InferenceEngine()
+print("engine val=", eng.knn_topk, eng.unknown_dist_th, eng.margin_th)
 
 def img_to_b64(path: str) -> str:
     raw = Path(path).read_bytes()
@@ -29,7 +35,7 @@ def fetch_name_eng_map(item_ids: list[int]) -> dict[int, str]:
         return {}
 
     host = os.environ.get("DB_HOST", "127.0.0.1")
-    port = int(os.environ.get("DB_PORT", "3306"))
+    port = int(os.environ.get("DB_PORT", "3307"))
     user = os.environ.get("DB_USER", "root")
     pw = os.environ.get("DB_PASSWORD", "")
     db = os.environ.get("DB_NAME", "")
@@ -61,7 +67,7 @@ def draw_overlay(frame_path: str, instances: list[dict], id2name: dict[int, str]
     draw = ImageDraw.Draw(img)
 
     w, h = img.size
-    font_size = max(20, int(min(w, h) * 0.02))
+    font_size = max(20, int(min(w, h) * 0.015))
     font_path = os.environ.get("FONT_PATH", "").strip()
 
     candidates = [
@@ -121,6 +127,11 @@ if __name__ == "__main__":
     eng = InferenceEngine()
     eng.startup_load()
 
+    print("YOLO loaded:", eng.yolo is not None)
+    print("YOLO params:", eng.yolo_imgsz, eng.yolo_conf, eng.yolo_iou, eng.ai_device)
+    print("KNN params:", eng.knn_topk, eng.unknown_dist_th, eng.margin_th)
+    print("has _resolve_yolo_seg_local_path:", hasattr(eng, "_resolve_yolo_seg_local_path"))
+    print("YOLO_SEG_MODEL_URI (os.getenv):", os.getenv("YOLO_SEG_MODEL_URI"))
 
     # 2) 테스트 이미지 폴더 경로 (본인 환경에 맞게 수정)
     input_dir = "/home/ram/Downloads/TEST"
@@ -161,7 +172,8 @@ if __name__ == "__main__":
             print("infer error:", e)
             continue
 
-        print(json.dumps(res, ensure_ascii=False, indent=2))
+        # print(json.dumps(res, ensure_ascii=False, indent=2))
+        print(json.dumps(res, ensure_ascii=False, separators=(",", ":")))
 
         # 3) item_id들 모아서 DB에서 name_eng 조회
         instances = res.get("result_json", {}).get("instances", [])

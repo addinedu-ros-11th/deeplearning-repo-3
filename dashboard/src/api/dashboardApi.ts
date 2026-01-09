@@ -60,26 +60,38 @@ export async function fetchAlertsSummary(): Promise<AlertSummary[]> {
 
   return reviews.slice(0, 5).map(review => {
     let severity: AlertSeverity = "normal";
-    if (review.reason === "REVIEW") severity = "critical";
-    else if (review.reason === "UNKNOWN") severity = "warning";
+    let message = `세션 ${review.session_id} 검토 필요: ${review.reason}`;
+    let type = review.reason;
+
+    if (review.reason === "ADMIN_CALL") {
+      severity = "warning";
+      message = "관리자 호출 요청";
+      type = "시스템";
+    } else if (review.reason === "REVIEW") {
+      severity = "warning";
+      type = "결제";
+    } else if (review.reason === "UNKNOWN") {
+      severity = "critical";
+      message = "알 수 없는 아이템이 감지되었습니다";
+      type = "결제";
+    }
 
     // top_k_json 파싱하여 메시지 생성
-    let message = `세션 ${review.session_id} 검토 필요`;
-    if (review.top_k_json && Array.isArray(review.top_k_json)) {
-      const itemIds = review.top_k_json
-        .map((item: any) => item.item_id)
-        .filter((id: any) => id !== undefined)
+    if (review.reason !== "ADMIN_CALL" && review.reason !== "UNKNOWN" && review.top_k_json && Array.isArray(review.top_k_json)) {
+      const itemNames = review.top_k_json
+        .map((item: any) => item.name_kor || `#${item.item_id}`)
+        .filter((name: any) => name !== undefined)
         .slice(0, 3); // 최대 3개만 표시
 
-      if (itemIds.length > 0) {
-        message = `인식된 아이템: ${itemIds.map((id: number) => `#${id}`).join(", ")}`;
+      if (itemNames.length > 0) {
+        message = `인식된 아이템의 추론 확률이 낮습니다: ${itemNames.join(", ")}`;
       }
     }
 
     return {
       id: review.review_id,
       severity,
-      type: review.reason,
+      type,
       message,
       timestamp: formatToKST(review.created_at),
     };

@@ -102,13 +102,28 @@ def _ensure_order_for_session(db: Session, session_id: int, store_id: int, item_
 
 def _enrich_review(review: Review, db: Session) -> dict:
     """리뷰에 매장/디바이스 정보 추가"""
+    top_k_with_names = review.top_k_json
+    if isinstance(review.top_k_json, list) and review.top_k_json:
+        item_ids = [item.get("item_id") for item in review.top_k_json if isinstance(item, dict) and item.get("item_id")]
+        if item_ids:
+            menu_rows = db.query(MenuItem).filter(MenuItem.item_id.in_(item_ids)).all()
+            name_map = {m.item_id: m.name_kor for m in menu_rows}
+            top_k_with_names = []
+            for item in review.top_k_json:
+                if isinstance(item, dict):
+                    enriched = dict(item)
+                    item_id = item.get("item_id")
+                    if item_id and item_id in name_map:
+                        enriched["name_kor"] = name_map[item_id]
+                    top_k_with_names.append(enriched)
+
     result = {
         "review_id": review.review_id,
         "session_id": review.session_id,
         "run_id": review.run_id,
         "status": review.status,
         "reason": review.reason,
-        "top_k_json": review.top_k_json,
+        "top_k_json": top_k_with_names,
         "confirmed_items_json": review.confirmed_items_json,
         "created_at": review.created_at,
         "resolved_at": review.resolved_at,
@@ -175,11 +190,12 @@ def update_review(review_id: int, body: ReviewUpdate, db: Session = Depends(get_
 
     # RESOLVED로 바꾸는 순간: 주문 생성 + 세션 종료까지 원자적으로 수행
     if body.status == ReviewStatus.RESOLVED:
-        # ADMIN_CALL은 주문 없이 단순 확인 처리
-        if r.reason == "ADMIN_CALL":
+        # ADMIN_CALL, UNKNOWN review는 주문 없이 단순 확인 처리
+        if r.reason in ("ADMIN_CALL", "UNKNOWN"):
             r.status = ReviewStatus.RESOLVED
             r.resolved_at = utcnow()
             r.resolved_by = body.resolved_by
+            r.confirmed_items_json = body.confirmed_items_json
             db.commit()
             db.refresh(r)
             return _enrich_review(r, db)

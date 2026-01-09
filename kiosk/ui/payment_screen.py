@@ -7,16 +7,18 @@ from time import time
 from datetime import datetime
 from thread.order_save_worker import OrderSaveWorker
 import logging
+from arduino.check_pay import RFIDPayment
 
 class PaymentScreen(QWidget):
     def __init__(self, switch_callback, data):
         super().__init__()
         self.switch_callback = switch_callback
-        self.is_payed = False
+        self.is_payed = "NOT_CONNECTED_CARD"
         self.timer_started = False
         self.timeout_timer = None
         self.data = data
         self.init_ui()
+        self.payment_class = RFIDPayment()
     
     def init_ui(self):
         layout = QVBoxLayout()
@@ -84,9 +86,18 @@ class PaymentScreen(QWidget):
     def showEvent(self, event):
         """화면이 표시될 때 timer 관련 변수 초기화"""
         super().showEvent(event)
-        if not self.timer_started:
-            self.timer_started = True
-            self.start_timeout_timer()
+        if self.timeout_timer and self.timeout_timer.isActive():
+            self.timeout_timer.stop()
+        
+        self.timer_started = False
+        self.is_payed = "NOT_CONNECTED_CARD"
+
+        self.payment_class.reset()
+
+        self.timer_started = True
+        self.start_timeout_timer()
+
+        logging.info("[PaymentScreen] 결제 화면 초기화 완료")
 
     def start_timeout_timer(self):
         """5초 후 타임아웃 체크"""
@@ -97,28 +108,31 @@ class PaymentScreen(QWidget):
     def check_payment_status(self):
         """결제 상태 확인"""
         self.timeout_timer.stop()
-        
-        if not self.is_payed:
-            timeout_popup = PaymentTimeoutPopup()
-            timeout_popup.exec()
+        self.is_payed = self.payment_class.get_status()
+
+        if self.is_payed == "PAY_OK":
+            self._on_payment_success()
+
+        else:
+            if self.is_payed == "NO_MONEY":
+                payment_fail_popup = PaymentTimeoutPopup("잔액이 부족합니다.")
             
-            if timeout_popup.result == 'home':
+            elif self.is_payed == "NOT_CONNECTED_CARD":
+                payment_fail_popup = PaymentTimeoutPopup("결제 시간이 초과됐습니다.")
+
+            payment_fail_popup.exec()
+            
+            if payment_fail_popup.result == 'home':
                 self.switch_callback('home')
-            elif timeout_popup.result == 'retry':
-                # 재시도 - 타이머 재시작
+            elif payment_fail_popup.result == 'retry':
                 self.timer_started = False
                 self.start_timeout_timer()
-        else:
-            # 결제 완료
-            complete_popup = PaymentCompletePopup()
-            complete_popup.exec()
-            
-            if complete_popup.result == 'home':
-                self.switch_callback('home')
+        
+        self.payment_class.reset()
     
-    def on_payment_success(self):
+    def _on_payment_success(self):
         """RFID 결제 성공 시 호출할 메서드"""
-        self.is_payed = True
+        self.is_payed = "PAY_OK"
 
         # 타이머가 있고 실행 중이면 중지
         if self.timeout_timer and self.timeout_timer.isActive():
@@ -132,8 +146,8 @@ class PaymentScreen(QWidget):
         
         # OrderLine 형식으로 변환
         lines = []
-        item_names = self.data.get_item_name()  # 리스트라고 가정
-        item_quantities = self.data.get_item_quantity()  # 리스트라고 가정
+        item_names = self.data.get_item_name()
+        item_quantities = self.data.get_item_quantity()
         
         # 각 아이템을 OrderLine 형식으로 변환
         for i, (name, qty) in enumerate(zip(item_names, item_quantities)):

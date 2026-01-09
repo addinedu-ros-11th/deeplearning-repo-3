@@ -17,20 +17,21 @@ function reviewToAlert(review: ReviewOut): Alert {
     message = "관리자 호출 요청";
     category = "system";
   } else if (review.reason === "REVIEW") {
-    type = "critical";
-  } else if (review.reason === "UNKNOWN") {
     type = "warning";
+  } else if (review.reason === "UNKNOWN") {
+    type = "critical";
+    message = "알 수 없는 아이템이 감지되었습니다";
   }
 
   // top_k_json 파싱하여 메시지 생성 (ADMIN_CALL이 아닌 경우만)
   if (review.reason !== "ADMIN_CALL" && review.top_k_json && Array.isArray(review.top_k_json)) {
-    const itemIds = review.top_k_json
-      .map((item: any) => item.item_id)
-      .filter((id: any) => id !== undefined)
+    const itemNames = review.top_k_json
+      .map((item: any) => item.name_kor || `#${item.item_id}`)
+      .filter((name: any) => name !== undefined)
       .slice(0, 3); // 최대 3개만 표시
 
-    if (itemIds.length > 0) {
-      message = `인식된 아이템: ${itemIds.map((id: number) => `#${id}`).join(", ")} (${review.reason})`;
+    if (itemNames.length > 0) {
+      message = `인식된 아이템의 추론 확률이 낮습니다: ${itemNames.join(", ")}`;
     }
   }
 
