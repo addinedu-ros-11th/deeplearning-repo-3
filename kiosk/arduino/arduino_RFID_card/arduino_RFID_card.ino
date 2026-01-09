@@ -6,24 +6,36 @@
 
 MFRC522 rfid(SS_PIN, RST_PIN);
 
+// RFID 카드를 문자열로 바꿔주는 기능
+String getUID()
+{ㄴ
+  String uid = "";
+  for (byte i = 0; i < rfid.uid.size; i++)
+  {
+    if (rfid.uid.uidByte[i] < 0x10) uid += "0";
+    uid += String(rfid.uid.uidByte[i], HEX);
+  }
+  uid.toUpperCase();
+  return uid;
+}
+
 void setup()
 {
   Serial.begin(9600);
   SPI.begin();
   rfid.PCD_Init();
-
-  Serial.println("READY");   // Python에서 대기 신호
+  Serial.println("RFID Ready");
 }
 
 void loop()
 {
-  // 카드 감지 대기
   if (!rfid.PICC_IsNewCardPresent()) return;
   if (!rfid.PICC_ReadCardSerial()) return;
-  
-  // 결제 처리
-  Serial.println("PAY_OK");
+
+  String uid = getUID();
+  Serial.print("UID:");
+  Serial.println(uid);
 
   rfid.PICC_HaltA();
-  delay(1500);  // 중복 결제 방지
+  delay(1500);
 }
