@@ -84,15 +84,15 @@ class BasePopup(QDialog):
 
 
 class PaymentTimeoutPopup(BasePopup):
-    """결제 시간 초과 팝업"""
-    def __init__(self, parent=None):
+    """결제 실패 팝업"""
+    def __init__(self, content: str, parent=None):
         super().__init__(parent)
+        self.content = content
         self.init_ui()
     
     def init_ui(self):
-        self.setWindowTitle("결제 시간 초과")
-        
-        layout = self.create_layout("결제 시간 초과", "결제시간이 초과되었습니다.\n다시 시도해주세요.")
+        self.setWindowTitle("결제 실패")
+        layout = self.create_layout("결제 실패", self.content+"\n다시 시도해주세요.")
         
         # 버튼
         button_layout = QHBoxLayout()
