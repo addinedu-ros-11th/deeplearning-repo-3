@@ -106,7 +106,7 @@ def _augment_instances_with_center_and_label(db: Session, result_json: dict[str,
 
         # label_text
         bid = inst.get("best_item_id")
-        if isinstance(bid, int) and "label_text" not in inst:
+        if isinstance(bid, int):
             inst["label_text"] = name_map.get(bid, f"ITEM-{bid}")
 
         # center
@@ -416,6 +416,9 @@ def get_tray_job(job_id: int, db: Session = Depends(get_db)):
     j = db.query(InferenceJob).filter(InferenceJob.job_id == job_id).first()
     if not j:
         raise HTTPException(status_code=404, detail="job not found")
+    if j.result_json:
+        j.result_json = _augment_instances_with_center_and_label(db, j.result_json)
+
     return j
 
 
