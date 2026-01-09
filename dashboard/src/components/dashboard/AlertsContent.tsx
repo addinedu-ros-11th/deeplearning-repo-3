@@ -11,6 +11,7 @@ const AlertsContent = () => {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [selectedVideo, setSelectedVideo] = useState<string | null>(null); // 영상 모달용
+  const [processingId, setProcessingId] = useState<string | null>(null); // 처리 중인 알림 ID
 
   useEffect(() => {
     const loadData = async () => {
@@ -64,6 +65,11 @@ const AlertsContent = () => {
   };
 
   const handleConfirm = async (alertItem: Alert) => {
+    // 이미 처리 중이면 무시
+    if (processingId) {
+      return;
+    }
+
     console.log("handleConfirm 호출:", alertItem);
     console.log("review_id:", alertItem.review_id);
     console.log("top_k_json:", alertItem.top_k_json);
@@ -73,6 +79,8 @@ const AlertsContent = () => {
       window.alert("리뷰 확정 처리 실패: review_id가 없습니다.");
       return;
     }
+
+    setProcessingId(alertItem.id);
 
     try {
       // ADMIN_CALL (시스템 카테고리)은 단순 확인 처리
@@ -84,14 +92,10 @@ const AlertsContent = () => {
         return;
       }
 
-      // 일반 리뷰는 top_k_json 필요
-      if (!Array.isArray(alertItem.top_k_json) || alertItem.top_k_json.length === 0) {
-        console.error("리뷰 확정 처리 실패: top_k_json이 비어있습니다", alertItem.top_k_json);
-        window.alert("리뷰 확정 처리 실패: 인식된 아이템이 없습니다.");
-        return;
-      }
+      // top_k_json이 비어있으면 빈 배열로 처리
+      const topKJson = Array.isArray(alertItem.top_k_json) ? alertItem.top_k_json : [];
 
-      await confirmReview(alertItem.review_id, alertItem.top_k_json);
+      await confirmReview(alertItem.review_id, topKJson);
       const data = await fetchAlerts();
       setAlerts(data);
       window.alert("리뷰가 확정 처리되었습니다.");
@@ -99,6 +103,8 @@ const AlertsContent = () => {
       console.error("리뷰 확정 처리 오류:", err);
       const errorMsg = err instanceof Error ? err.message : "알 수 없는 오류";
       window.alert(`리뷰 확정 처리에 실패했습니다: ${errorMsg}`);
+    } finally {
+      setProcessingId(null);
     }
   };
 
@@ -254,17 +260,19 @@ const AlertsContent = () => {
                 {alert.type === "critical" && alert.review_id && (
                   <button
                     onClick={() => handleConfirm(alert)}
-                    className="px-3 py-1.5 bg-destructive text-destructive-foreground rounded-lg text-sm font-medium hover:bg-destructive/90 transition-colors"
+                    disabled={processingId !== null}
+                    className="px-3 py-1.5 bg-destructive text-destructive-foreground rounded-lg text-sm font-medium hover:bg-destructive/90 transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
                   >
-                    확인
+                    {processingId === alert.id ? "처리 중..." : "확인"}
                   </button>
                 )}
                 {alert.type === "warning" && alert.review_id && (
                   <button
                     onClick={() => handleConfirm(alert)}
-                    className="px-3 py-1.5 bg-warning/20 text-warning rounded-lg text-sm font-medium hover:bg-warning/30 transition-colors"
+                    disabled={processingId !== null}
+                    className="px-3 py-1.5 bg-warning/20 text-warning rounded-lg text-sm font-medium hover:bg-warning/30 transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
                   >
-                    처리
+                    {processingId === alert.id ? "처리 중..." : "처리"}
                   </button>
                 )}
               </div>
