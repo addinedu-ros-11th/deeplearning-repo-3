@@ -9,10 +9,12 @@ from popup.overlap_popup import OverlapPopup
 import logging
 import uuid
 import cv2
+import os
 
 class ScanScreen(QWidget):
     def __init__(self, switch_callback, data, store_id, device_id):
         super().__init__()
+        self.test_image_path = "./data/tray_test.png"
         self.switch_callback = switch_callback
         self.data = data
         self.selected_items = []
@@ -41,8 +43,8 @@ class ScanScreen(QWidget):
         self.detection_results = []
 
         self.init_ui()
-        self.create_session()
-    
+        # create_session은 showEvent에서만 호출
+
     def showEvent(self, event):
         super().showEvent(event)
 
@@ -386,7 +388,9 @@ class ScanScreen(QWidget):
         if self.cap is not None:
             return  # 이미 실행 중
 
+        """ for test
         self.cap = cv2.VideoCapture(0)
+        self.cap = cv2.VideoCapture(self.test_image_path)
         if not self.cap.isOpened():
             logging.error("[웹캠] 카메라를 열 수 없습니다")
             return
@@ -397,6 +401,22 @@ class ScanScreen(QWidget):
         self.camera_timer = QTimer()
         self.camera_timer.timeout.connect(self.update_frame)
         self.camera_timer.start(33)  # ~30fps
+
+        """
+
+        # 테스트 이미지 로드
+        self.current_frame = cv2.imread(self.test_image_path)
+        if self.current_frame is None:
+            logging.error(f"[테스트] 이미지를 로드할 수 없습니다: {self.test_image_path}")
+            return
+
+        logging.info(f"[테스트] 이미지 로드 완료: {self.test_image_path}")
+
+        # 화면에 이미지 표시
+        self.display_frame(self.current_frame)
+
+        # 바로 AI 추론 시작
+        self.start_inference()
 
     def stop_camera(self):
         """웹캠 중지"""
@@ -669,12 +689,10 @@ class ScanScreen(QWidget):
         logging.info("[AI추론] AI 추론 시작")
 
         # 테스트: 웹캠 대신 테스트 이미지 사용
-        import os
-        test_image_path = os.path.join(os.path.dirname(__file__), "..", "data", "tray_test.png")
-        if os.path.exists(test_image_path):
-            with open(test_image_path, "rb") as f:
+        if os.path.exists(self.test_image_path):
+            with open(self.test_image_path, "rb") as f:
                 frame_bytes = f.read()
-            logging.info(f"[AI추론] 테스트 이미지 사용: {test_image_path}")
+            logging.info(f"[AI추론] 테스트 이미지 사용: {self.test_image_path}")
         else:
             # 프레임을 JPEG로 인코딩
             _, buffer = cv2.imencode('.jpg', self.current_frame)
