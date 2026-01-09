@@ -597,12 +597,17 @@ class InferenceEngine:
             out.release()
 
             import subprocess
-            subprocess.run([
+            result = subprocess.run([
                 'ffmpeg', '-y', '-i', temp_path,
                 '-c:v', 'libx264', '-preset', 'fast', '-crf', '23',
                 local_clip_path
-            ], capture_output=True)
-            os.remove(temp_path)
+            ], capture_output=True, text=True)
+
+            if result.returncode != 0:
+                logging.error(f"ffmpeg 변환 실패: {result.stderr}")
+                os.rename(temp_path, local_clip_path)
+            else:
+                os.remove(temp_path)
 
             violence_count = sum(1 for p in probabilities if p >= self.violence_classifier.threshold)
             return {
@@ -629,6 +634,7 @@ class InferenceEngine:
         """공유 프레임으로 낙상 감지 추론"""
         fall_detected = False
         fall_frame = None
+        fall_confidence = 0.0
         skip_frames = 0
 
         for i, frame in enumerate(frames):
@@ -641,42 +647,49 @@ class InferenceEngine:
             if result.get("is_fall") and not fall_detected:
                 fall_detected = True
                 fall_frame = i
+                fall_confidence = result.get("confidence", 0.0)  # 실제 값 사용
                 skip_frames = fps * 10
 
-        if fall_detected:
-            timestamp = now.strftime("%Y%m%d_%H%M%S")
-            local_clip_dir = os.path.join(settings.CACHE_DIR, "fall_clips")
-            _ensure_dir(local_clip_dir)
-            local_clip_path = os.path.join(local_clip_dir, f"cctv_fall_down_{timestamp}.mp4")
+        if not fall_detected:
+            return {"is_fall": False, "confidence": 0.0, "local_clip_path": None, "extra_meta": {}}
 
-            clip_seconds = 5
-            start_frame = max(0, fall_frame - clip_seconds * fps)
-            end_frame = min(len(frames), fall_frame + clip_seconds * fps)
+        # 클립 생성
+        timestamp = now.strftime("%Y%m%d_%H%M%S")
+        local_clip_dir = os.path.join(settings.CACHE_DIR, "fall_clips")
+        _ensure_dir(local_clip_dir)
+        local_clip_path = os.path.join(local_clip_dir, f"cctv_fall_down_{timestamp}.mp4")
 
-            # mp4v로 임시 저장 후 ffmpeg로 H.264 변환 (브라우저 호환)
-            temp_path = local_clip_path.replace('.mp4', '_temp.mp4')
-            fourcc = cv2.VideoWriter_fourcc(*'mp4v')
-            out = cv2.VideoWriter(temp_path, fourcc, fps, (width, height))
-            for f in frames[start_frame:end_frame]:
-                out.write(f)
-            out.release()
+        clip_seconds = 5
+        start_frame = max(0, fall_frame - clip_seconds * fps)
+        end_frame = min(len(frames), fall_frame + clip_seconds * fps)
 
-            import subprocess
-            subprocess.run([
-                'ffmpeg', '-y', '-i', temp_path,
-                '-c:v', 'libx264', '-preset', 'fast', '-crf', '23',
-                local_clip_path
-            ], capture_output=True)
+        # mp4v로 임시 저장 후 ffmpeg로 H.264 변환 (브라우저 호환)
+        temp_path = local_clip_path.replace('.mp4', '_temp.mp4')
+        fourcc = cv2.VideoWriter_fourcc(*'mp4v')
+        out = cv2.VideoWriter(temp_path, fourcc, fps, (width, height))
+        for f in frames[start_frame:end_frame]:
+            out.write(f)
+        out.release()
+
+        import subprocess
+        result = subprocess.run([
+            'ffmpeg', '-y', '-i', temp_path,
+            '-c:v', 'libx264', '-preset', 'fast', '-crf', '23',
+            local_clip_path
+        ], capture_output=True, text=True)
+
+        if result.returncode != 0:
+            logging.error(f"ffmpeg 변환 실패 (fall): {result.stderr}")
+            os.rename(temp_path, local_clip_path)
+        else:
             os.remove(temp_path)
 
-            return {
-                "is_fall": True,
-                "confidence": 1.0,
-                "local_clip_path": local_clip_path,
-                "extra_meta": {"source": "shared_frames"},
-            }
-
-        return {"is_fall": False, "confidence": 0.0, "local_clip_path": None, "extra_meta": {}}
+        return {
+            "is_fall": True,
+            "confidence": fall_confidence,  # 실제 YOLO confidence
+            "local_clip_path": local_clip_path,
+            "extra_meta": {"source": "shared_frames"},
+        }
 
     def _run_auxiliary_inference_frames(
             self,
@@ -703,15 +716,18 @@ class InferenceEngine:
                     detected_frame = i
                     skip_frames = fps * 10
 
-            if detected:
-                timestamp = now.strftime("%Y%m%d_%H%M%S")
-                local_clip_dir = os.path.join(settings.CACHE_DIR, "auxiliary_clips")
-                _ensure_dir(local_clip_dir)
-                local_clip_path = os.path.join(local_clip_dir, f"cctv_auxiliary_{timestamp}.mp4")
+            if not detected:
+                return {"detected": False, "confidence": 0.0, "local_clip_path": None, "extra_meta": {}}
 
-                clip_seconds = 5
-                start_frame = max(0, detected_frame - clip_seconds * fps)
-                end_frame = min(len(frames), detected_frame + clip_seconds * fps)
+            # 감지됨 - 클립 생성
+            timestamp = now.strftime("%Y%m%d_%H%M%S")
+            local_clip_dir = os.path.join(settings.CACHE_DIR, "auxiliary_clips")
+            _ensure_dir(local_clip_dir)
+            local_clip_path = os.path.join(local_clip_dir, f"cctv_auxiliary_{timestamp}.mp4")
+
+            clip_seconds = 5
+            start_frame = max(0, detected_frame - clip_seconds * fps)
+            end_frame = min(len(frames), detected_frame + clip_seconds * fps)
 
             # mp4v로 임시 저장 후 ffmpeg로 H.264 변환 (브라우저 호환)
             temp_path = local_clip_path.replace('.mp4', '_temp.mp4')
@@ -722,22 +738,24 @@ class InferenceEngine:
             out.release()
 
             import subprocess
-            subprocess.run([
+            result = subprocess.run([
                 'ffmpeg', '-y', '-i', temp_path,
                 '-c:v', 'libx264', '-preset', 'fast', '-crf', '23',
                 local_clip_path
-            ], capture_output=True)
-            os.remove(temp_path)
+            ], capture_output=True, text=True)
 
-                return {
-                    "detected": True,
-                    "confidence": 1.0,
-                    "local_clip_path": local_clip_path,
-                    "extra_meta": {"source": "shared_frames"},
-                }
+            if result.returncode != 0:
+                logging.error(f"ffmpeg 변환 실패 (auxiliary): {result.stderr}")
+                os.rename(temp_path, local_clip_path)
+            else:
+                os.remove(temp_path)
 
-            return {"detected": False, "confidence": 0.0, "local_clip_path": None, "extra_meta": {}}
-
+            return {
+                "detected": True,
+                "confidence": 1.0,
+                "local_clip_path": local_clip_path,
+                "extra_meta": {"source": "shared_frames"},
+            }
 
     @torch.no_grad()
     def _embed_crop_resnet50(self, crop: np.ndarray, dim: int) -> np.ndarray:

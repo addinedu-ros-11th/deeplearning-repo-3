@@ -49,6 +49,7 @@ class FallDownDetection:
         """
         result = {
             "is_fall": False,
+            "confidence": 0.0,
             "clip_path": None
         }
 
@@ -62,12 +63,13 @@ class FallDownDetection:
                 verbose=False
             )
 
-            is_fall = self._detect_fall(results)
+            is_fall, confidence = self._detect_fall(results)
 
             if is_fall:
-                self.logger.info("낙상 감지됨")
+                self.logger.info(f"낙상 감지됨 (conf={confidence:.2f})")
 
             result["is_fall"] = is_fall
+            result["confidence"] = confidence
             return result
 
         except Exception as e:
@@ -78,6 +80,8 @@ class FallDownDetection:
         """
         Skeleton rule 기반 낙상 판단
         """
+        max_confidence = 0.0
+
         for result in results:
             if result.boxes is None or result.keypoints is None:
                 continue
@@ -85,6 +89,7 @@ class FallDownDetection:
             for i in range(len(result.boxes)):
                 x1, y1, x2, y2 = map(int, result.boxes.xyxy[i])
                 kpts = result.keypoints.xy[i]
+                conf = float(result.boxes.conf[i])  # YOLO detection confidence
 
                 head_y = kpts[0][1]
                 hip_y = (kpts[11][1] + kpts[12][1]) / 2
@@ -98,13 +103,15 @@ class FallDownDetection:
 
                 if rule_fall:
                     self.fall_counter[pid] = self.fall_counter.get(pid, 0) + 1
+                    if conf > max_confidence:
+                        max_confidence = conf
                 else:
                     self.fall_counter[pid] = 0
 
                 if self.fall_counter[pid] >= self.FALL_FRAME_THRESHOLD:
-                    return True
+                    return True, max_confidence
 
-        return False
+        return False, 0.0
 
     def _save_clip(self):
         """

@@ -52,6 +52,7 @@ class AuxiliaryTools:
         """
         result = {
             "detected": False,
+            "confidence": 0.0,
             "num_objects": 0,
             "clip_path": None
         }
@@ -69,7 +70,9 @@ class AuxiliaryTools:
             detected = boxes is not None and len(boxes) > 0
 
             if detected:
-                self.logger.info(f"Auxiliary 객체 감지 ({len(boxes)}개)")
+                max_conf = float(boxes.conf.max()) if len(boxes.conf) > 0 else 0.0
+                self.logger.info(f"Auxiliary 객체 감지 ({len(boxes)}개, conf={max_conf:.2f})")
+                result["confidence"] = max_conf
 
             result["detected"] = detected
             result["num_objects"] = len(boxes) if detected else 0
