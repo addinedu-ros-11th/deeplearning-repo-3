@@ -8,7 +8,7 @@ MFRC522 rfid(SS_PIN, RST_PIN);
 
 // RFID 카드를 문자열로 바꿔주는 기능
 String getUID()
-{ㄴ
+{
   String uid = "";
   for (byte i = 0; i < rfid.uid.size; i++)
   {
