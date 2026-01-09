@@ -35,7 +35,7 @@ export SUBNET_RANGE="10.10.0.0/24"
 # 서비스/VM
 export CENTRAL_SERVICE="bake_sight-central"
 export CENTRAL_NET_TAG="central-run"     # Cloud Run 네트워크 태그 (방화벽에 사용)
-export AI_VM="bake_sight-ai-01"
+# export AI_VM="bake_sight-ai-01"
 export AI_PORT="9000"
 
 # Cloud SQL
@@ -74,7 +74,7 @@ gcloud compute networks subnets create "${SUBNET}"   --network "${VPC}"   --regi
 
 ---
 
-## 5) GCS 버킷(선택이지만 권장)
+## 5) GCS 버킷
 ```bash
 export BUCKET_TRAY="${PROJECT_ID}-smartcafe-tray"
 export BUCKET_CCTV="${PROJECT_ID}-smartcafe-cctv"
@@ -124,7 +124,7 @@ echo -n "${DATABASE_URL}"     | gcloud secrets create BAKE_SIGHT_DATABASE_URL --
 
 ## 9) AI GPU VM 생성 및 기동
 ### 9.1 GPU VM 생성(DLVM 이미지 권장)
-DLVM 이미지 family는 Google이 관리하는 Deep Learning VM 이미지로, GPU 드라이버/런타임 구성이 수월합니다.
+<!-- DLVM 이미지 family는 Google이 관리하는 Deep Learning VM 이미지로, GPU 드라이버/런타임 구성이 수월합니다.
 
 ```bash
 IMAGE_FAMILY="common-cu128-ubuntu-2204-nvidia-570"
@@ -136,7 +136,7 @@ gcloud compute instances create "${AI_VM}"   --zone "${ZONE}"   --subnet "${SUBN
 GPU 확인:
 ```bash
 gcloud compute ssh "${AI_VM}" --zone "${ZONE}" --command "nvidia-smi"
-```
+``` -->
 
 ### 9.2 방화벽(Cloud Run 네트워크 태그만 허용)
 ```bash

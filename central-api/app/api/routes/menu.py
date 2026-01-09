@@ -13,3 +13,24 @@ def list_menu_items(active: int = 1, db: Session = Depends(get_db)):
     if active in (0, 1):
         q = q.filter(MenuItem.active == bool(active))
     return q.order_by(MenuItem.item_id.asc()).all()
+
+@router.get("/menu-items/by-id/{item_id}", response_model=MenuItemOut)
+def get_menu_item_by_id(item_id: int, db: Session = Depends(get_db)):
+    """item_id로 메뉴 아이템 조회"""
+    from fastapi import HTTPException
+    item = db.query(MenuItem).filter(MenuItem.item_id == item_id).first()
+    if not item:
+        raise HTTPException(status_code=404, detail=f"Menu item with id {item_id} not found")
+    return item
+
+
+@router.get("/menu-items/{name}", response_model=MenuItemOut)
+def get_menu_item_by_name(name: str, db: Session = Depends(get_db)):
+    """이름(영문 또는 한글)으로 메뉴 아이템 조회"""
+    from fastapi import HTTPException
+    item = db.query(MenuItem).filter(
+        (MenuItem.name_eng == name) | (MenuItem.name_kor == name)
+    ).first()
+    if not item:
+        raise HTTPException(status_code=404, detail=f"Menu item '{name}' not found")
+    return item

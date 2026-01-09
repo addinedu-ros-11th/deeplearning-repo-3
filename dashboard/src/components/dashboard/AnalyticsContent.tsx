@@ -1,0 +1,242 @@
+import { useState, useEffect } from "react";
+import { BarChart3, TrendingUp, TrendingDown, Users, ShoppingBag, Clock } from "lucide-react";
+import { BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, LineChart, Line, PieChart, Pie, Cell } from "recharts";
+import type { WeeklyDataPoint, HourlyDataPoint, CategoryData, AnalyticsStat } from "@/api/types";
+import { fetchWeeklyData, fetchHourlyCustomers, fetchCategoryData, fetchAnalyticsStats } from "@/api/analyticsApi";
+
+const AnalyticsContent = () => {
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState<string | null>(null);
+  const [weeklyData, setWeeklyData] = useState<WeeklyDataPoint[]>([]);
+  const [hourlyCustomers, setHourlyCustomers] = useState<HourlyDataPoint[]>([]);
+  const [categoryData, setCategoryData] = useState<CategoryData[]>([]);
+  const [stats, setStats] = useState<AnalyticsStat[]>([]);
+
+  useEffect(() => {
+    const loadData = async () => {
+      try {
+        setLoading(true);
+        const [weekly, hourly, category, analyticsStats] = await Promise.all([
+          fetchWeeklyData(),
+          fetchHourlyCustomers(),
+          fetchCategoryData(),
+          fetchAnalyticsStats(),
+        ]);
+        setWeeklyData(weekly);
+        setHourlyCustomers(hourly);
+        setCategoryData(category);
+        setStats(analyticsStats);
+      } catch (err) {
+        console.error("Analytics data fetch error:", err);
+        setError(err instanceof Error ? err.message : "데이터를 불러오는데 실패했습니다");
+      } finally {
+        setLoading(false);
+      }
+    };
+    loadData();
+  }, []);
+
+  const getStatIcon = (iconType: AnalyticsStat["iconType"]) => {
+    switch (iconType) {
+      case "trending": return TrendingUp;
+      case "users": return Users;
+      case "shopping": return ShoppingBag;
+      case "clock": return Clock;
+    }
+  };
+
+  if (loading) {
+    return (
+      <div className="flex items-center justify-center h-64">
+        <div className="text-center">
+          <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-primary mx-auto mb-4"></div>
+          <p className="text-muted-foreground">분석 데이터를 불러오는 중...</p>
+        </div>
+      </div>
+    );
+  }
+
+  if (error) {
+    return (
+      <div className="flex items-center justify-center h-64">
+        <div className="text-center">
+          <p className="text-destructive text-lg mb-2">오류 발생</p>
+          <p className="text-muted-foreground">{error}</p>
+        </div>
+      </div>
+    );
+  }
+
+  const hasNoData = stats.length === 0 && weeklyData.length === 0 && hourlyCustomers.length === 0 && categoryData.length === 0;
+
+  return (
+    <div className="space-y-6">
+      {/* Header */}
+      <div>
+        <h2 className="text-2xl font-bold text-foreground flex items-center gap-2">
+          <BarChart3 className="w-7 h-7 text-primary" />
+          분석
+        </h2>
+        <p className="text-muted-foreground mt-1">Analytics Dashboard</p>
+      </div>
+
+      {hasNoData ? (
+        <div className="text-center py-20 text-muted-foreground">
+          <BarChart3 className="w-16 h-16 mx-auto mb-4 opacity-50" />
+          <p className="text-lg">분석 데이터가 없습니다</p>
+          <p className="text-sm mt-2">주문 데이터가 쌓이면 분석 결과가 표시됩니다</p>
+        </div>
+      ) : (
+      <>
+      {/* Stats Cards */}
+      <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4">
+        {stats.map((stat, index) => {
+          const Icon = getStatIcon(stat.iconType);
+          return (
+            <div
+              key={index}
+              className="bg-card rounded-2xl p-5 border border-border hover:shadow-lg transition-all"
+            >
+              <div className="flex items-center justify-between mb-3">
+                <div className="p-2 rounded-lg bg-primary/20">
+                  <Icon className="w-5 h-5 text-primary" />
+                </div>
+                <span className={`text-sm font-medium flex items-center gap-1 ${
+                  stat.trend === "up" ? "text-success" : "text-destructive"
+                }`}>
+                  {stat.trend === "up" ? <TrendingUp className="w-4 h-4" /> : <TrendingDown className="w-4 h-4" />}
+                  {stat.change}
+                </span>
+              </div>
+              <p className="text-2xl font-bold text-foreground">{stat.value}</p>
+              <p className="text-sm text-muted-foreground mt-1">{stat.label}</p>
+            </div>
+          );
+        })}
+      </div>
+
+      {/* Charts Grid */}
+      <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
+        {/* Weekly Revenue Chart */}
+        <div className="bg-card rounded-2xl p-6 border border-border">
+          <h3 className="text-lg font-semibold text-foreground mb-4">📊 주간 매출 추이</h3>
+          <ResponsiveContainer width="100%" height={300}>
+            <BarChart data={weeklyData}>
+              <CartesianGrid strokeDasharray="3 3" stroke="hsl(var(--border))" />
+              <XAxis dataKey="day" stroke="hsl(var(--muted-foreground))" />
+              <YAxis stroke="hsl(var(--muted-foreground))" tickFormatter={(v) => `${(v / 1000000).toFixed(1)}M`} />
+              <Tooltip
+                contentStyle={{
+                  backgroundColor: "hsl(var(--card))",
+                  border: "1px solid hsl(var(--border))",
+                  borderRadius: "12px",
+                }}
+                labelStyle={{ color: "hsl(var(--foreground))" }}
+                formatter={(value: number) => [`₩${value.toLocaleString()}`, "매출"]}
+              />
+              <Bar dataKey="revenue" fill="hsl(var(--primary))" radius={[8, 8, 0, 0]} />
+            </BarChart>
+          </ResponsiveContainer>
+        </div>
+
+        {/* Hourly Customer Flow */}
+        <div className="bg-card rounded-2xl p-6 border border-border">
+          <h3 className="text-lg font-semibold text-foreground mb-4">👥 시간대별 고객 수</h3>
+          <ResponsiveContainer width="100%" height={300}>
+            <LineChart data={hourlyCustomers}>
+              <CartesianGrid strokeDasharray="3 3" stroke="hsl(var(--border))" />
+              <XAxis dataKey="hour" stroke="hsl(var(--muted-foreground))" tickFormatter={(v) => `${v}시`} />
+              <YAxis stroke="hsl(var(--muted-foreground))" />
+              <Tooltip
+                contentStyle={{
+                  backgroundColor: "hsl(var(--card))",
+                  border: "1px solid hsl(var(--border))",
+                  borderRadius: "12px",
+                }}
+                labelStyle={{ color: "hsl(var(--foreground))" }}
+                formatter={(value: number) => [`${value}명`, "고객 수"]}
+              />
+              <Line 
+                type="monotone" 
+                dataKey="customers" 
+                stroke="hsl(var(--accent))" 
+                strokeWidth={3}
+                dot={{ fill: "hsl(var(--accent))", strokeWidth: 2, r: 4 }}
+                activeDot={{ r: 6 }}
+              />
+            </LineChart>
+          </ResponsiveContainer>
+        </div>
+
+        {/* Category Distribution */}
+        <div className="bg-card rounded-2xl p-6 border border-border">
+          <h3 className="text-lg font-semibold text-foreground mb-4">🍞 카테고리별 판매 비율</h3>
+          <div className="flex items-center">
+            <ResponsiveContainer width="60%" height={250}>
+              <PieChart>
+                <Pie
+                  data={categoryData}
+                  cx="50%"
+                  cy="50%"
+                  innerRadius={60}
+                  outerRadius={100}
+                  paddingAngle={2}
+                  dataKey="value"
+                >
+                  {categoryData.map((entry, index) => (
+                    <Cell key={index} fill={entry.color} />
+                  ))}
+                </Pie>
+                <Tooltip
+                  contentStyle={{
+                    backgroundColor: "hsl(var(--card))",
+                    border: "1px solid hsl(var(--border))",
+                    borderRadius: "12px",
+                  }}
+                  formatter={(value: number) => [`${value}%`, "비율"]}
+                />
+              </PieChart>
+            </ResponsiveContainer>
+            <div className="flex-1 space-y-2">
+              {categoryData.map((item, index) => (
+                <div key={index} className="flex items-center gap-2">
+                  <div 
+                    className="w-3 h-3 rounded-full" 
+                    style={{ backgroundColor: item.color }}
+                  />
+                  <span className="text-sm text-muted-foreground flex-1">{item.name}</span>
+                  <span className="text-sm font-medium text-foreground">{item.value}%</span>
+                </div>
+              ))}
+            </div>
+          </div>
+        </div>
+
+        {/* Customer Stats */}
+        <div className="bg-card rounded-2xl p-6 border border-border">
+          <h3 className="text-lg font-semibold text-foreground mb-4">📈 주간 방문객 추이</h3>
+          <ResponsiveContainer width="100%" height={250}>
+            <BarChart data={weeklyData}>
+              <CartesianGrid strokeDasharray="3 3" stroke="hsl(var(--border))" />
+              <XAxis dataKey="day" stroke="hsl(var(--muted-foreground))" />
+              <YAxis stroke="hsl(var(--muted-foreground))" />
+              <Tooltip
+                contentStyle={{
+                  backgroundColor: "hsl(var(--card))",
+                  border: "1px solid hsl(var(--border))",
+                  borderRadius: "12px",
+                }}
+                formatter={(value: number) => [`${value}명`, "방문객"]}
+              />
+              <Bar dataKey="customers" fill="hsl(var(--accent))" radius={[8, 8, 0, 0]} />
+            </BarChart>
+          </ResponsiveContainer>
+        </div>
+      </div>
+      </>
+      )}
+    </div>
+  );
+};
+
+export default AnalyticsContent;

@@ -1,12 +1,138 @@
 from PyQt6.QtWidgets import (QApplication, QWidget, QVBoxLayout, QHBoxLayout, QPushButton, QLabel, QScrollArea)
-from PyQt6.QtCore import Qt
+from PyQt6.QtCore import Qt, QTimer
+from PyQt6.QtGui import QImage, QPixmap
+from popup.call_popup import CallFailPopup, CallSuccessPopup, CallAutoSuccessPopup
+from thread.server_worker import APIWorker
+from thread.infer_worker import InferWorker
+from popup.error_popup import ErrorPopup
+from popup.overlap_popup import OverlapPopup
+import logging
+import uuid
+import cv2
+import os
 
 class ScanScreen(QWidget):
-    def __init__(self, switch_callback):
+    def __init__(self, switch_callback, data, store_id, device_id):
         super().__init__()
+        self.test_image_path = "./data/tray_test.png"
         self.switch_callback = switch_callback
+        self.data = data
         self.selected_items = []
+        self.session_id = None
+        self.session_uuid = None
+        self.store_id = store_id
+        self.checkout_device_id = device_id
+        self.is_inferring = False  # AI 추론 중 여부
+
+        # 웹캠 초기화
+        self.cap = None
+        self.camera_timer = None
+        self.current_frame = None  # 현재 프레임 저장
+
+        # 트레이 감지용 변수 (ROI 밝기 기반)
+        self.tray_detected = False  # 트레이 감지 상태
+        self.stable_count = 0  # 안정화 카운트
+        self.STABLE_THRESHOLD = 10  # 안정화 판단 프레임 수 (~0.3초)
+        self.BRIGHTNESS_THRESHOLD = 100  # 트레이 감지 밝기 임계값 (0-255)
+        self.ROI_RATIO = (0.3, 0.3, 0.7, 0.7)  # ROI 영역 비율 (x1, y1, x2, y2)
+        self.OVERLAP_THRESHOLD = 0.1 # 0.0 ~ 1.0
+
+        # 메뉴 조회 대기 목록
+        self.pending_items = []
+
+        self.detection_results = []
+
         self.init_ui()
+        # create_session은 showEvent에서만 호출
+
+    def showEvent(self, event):
+        super().showEvent(event)
+
+        # 기존 카메라 정리
+        self.stop_camera()
+
+        # 상태 초기화
+        self.selected_items = []
+        self.is_inferring = False
+        self.current_frame = None
+        self.pending_items = []
+        self.detection_results = []
+
+        # 트레이 감지 상태 초기화
+        self.tray_detected = False
+        self.stable_count = 0
+
+        # 장바구니 데이터 초기화
+        self.data.items = []
+
+        # UI 업데이트
+        self.update_item_list()
+
+        # 새 세션 생성 (세션 생성 완료 후 카메라 시작됨)
+        self.create_session()
+
+        logging.info("[ScanScreen] 화면 새로고침 완료")
+
+
+    def create_session(self):
+        """서버에 새 세션 생성 요청 (비동기)"""
+        self.session_uuid = str(uuid.uuid4())
+
+        session_data = {
+            "store_id": self.store_id,
+            "checkout_device_id": self.checkout_device_id,
+            "session_uuid": self.session_uuid,
+            "attempt_limit": 3
+        }
+
+        logging.info("[세션생성] 세션 생성 요청 시작")
+        
+        # APIWorker로 비동기 요청
+        self.session_worker = APIWorker(
+            api_url="/api/v1/sessions/create",
+            method="POST",
+            data=session_data
+        )
+        
+        # 시그널 연결
+        self.session_worker.success.connect(self.on_session_created)
+        self.session_worker.error.connect(self.on_session_error)
+        self.session_worker.finished.connect(self.on_session_finished)
+        
+        # 스레드 시작
+        self.session_worker.start()
+    
+    def on_session_created(self, result):
+        """세션 생성 성공"""
+        self.session_id = result.get("session_id")
+        self.data.set_session_id(self.session_id)
+        self.data.set_session_uuid(self.session_uuid)
+        self.data.set_store_id(self.store_id)
+
+        logging.info(f"[세션생성] 세션 생성 완료: {self.session_id}, UUID: {self.session_uuid}")
+
+        # 세션 생성 완료 후 웹캠 시작
+        self.start_camera()
+    
+    def on_session_error(self, error_msg):
+        """세션 생성 실패"""
+        logging.error(f"[세션생성] 세션 생성 실패: {error_msg}")
+
+        # 사용자에게 에러 표시
+        error_popup = ErrorPopup()
+        error_popup.exec()
+
+        if error_popup.result == 'home':
+            self.switch_callback('home')
+        elif error_popup.result == 'retry':
+            # 세션 재생성 시도
+            logging.info("[세션생성] 세션 재생성 시도")
+            self.create_session()
+    
+    def on_session_finished(self):
+        """세션 생성 요청 완료 (성공/실패 무관)"""
+        logging.info("[세션생성] 세션 생성 요청 종료")
+        self.session_worker = None
 
     def init_ui(self):
         layout = QVBoxLayout()
@@ -45,7 +171,7 @@ class ScanScreen(QWidget):
         button_layout.setSpacing(100)
         button_layout.setContentsMargins(20, 0, 20, 20)
         
-        call_btn = QPushButton("뒤로")
+        call_btn = QPushButton("관리자 호출")
         call_btn.setStyleSheet("""
             QPushButton {
                 font-size: 50px;
@@ -59,10 +185,10 @@ class ScanScreen(QWidget):
                 background-color: rgba(230, 218, 189, 0.5);
             }
         """)
-        call_btn.clicked.connect(lambda: self.switch_callback('home'))
-        
-        pay_btn = QPushButton("결제")
-        pay_btn.setStyleSheet("""
+        call_btn.clicked.connect(self.call_admin)
+
+        self.pay_btn = QPushButton("결제")
+        self.pay_btn.setStyleSheet("""
             QPushButton {
                 font-size: 50px;
                 padding: 15px;
@@ -74,14 +200,18 @@ class ScanScreen(QWidget):
             QPushButton:hover {
                 background-color: #E55A0F;
             }
+            QPushButton:disabled {
+                background-color: #cccccc;
+                color: #666666;
+            }
         """)
-        pay_btn.clicked.connect(lambda: self.switch_callback('check'))
+        self.pay_btn.clicked.connect(lambda: self.switch_callback('check'))
+        self.pay_btn.setEnabled(False)
 
         button_layout.addWidget(call_btn)
-        button_layout.addWidget(pay_btn)
+        button_layout.addWidget(self.pay_btn)
 
         layout.addLayout(button_layout)
-
 
         container = QWidget()
         container.setFixedHeight(797)
@@ -110,7 +240,6 @@ class ScanScreen(QWidget):
                 border-top-right-radius: 30px;
                 padding-top: 10px;
                 padding-right: 10px;
-
             }
             QScrollBar:vertical {
                 background-color: #F5E7C6;
@@ -130,26 +259,23 @@ class ScanScreen(QWidget):
         # 스크롤 안의 컨텐츠 위젯
         self.scroll_content = QWidget()
         self.scroll_content.setStyleSheet("""
-                        background-color: transparent;
-                        border: none;
-                        """)
+            background-color: transparent;
+            border: none;
+        """)
         self.scroll_layout = QVBoxLayout(self.scroll_content)
         self.scroll_layout.setContentsMargins(10, 10, 10, 10)
         self.scroll_layout.setSpacing(7)
-        self.scroll_layout.setAlignment(Qt.AlignmentFlag.AlignHCenter)  # 가운데 정렬 추가
+        self.scroll_layout.setAlignment(Qt.AlignmentFlag.AlignHCenter)
         
-        # 아이템 예시 (테스트용)
-        for i in range(10):
-            item = QLabel(f"아이템 {i+1}")
-            item.setFixedSize(954, 170)
-            item.setStyleSheet("""
-                background-color: rgba(250, 243, 225, 0.7);
-                border-radius: 3px;
-                font-size: 40px;
-                padding: 7px;
-            """)
-            item.setAlignment(Qt.AlignmentFlag.AlignLeft | Qt.AlignmentFlag.AlignVCenter)
-            self.scroll_layout.addWidget(item, alignment=Qt.AlignmentFlag.AlignHCenter)  # 가운데 정렬
+        # 초기 안내 메시지 (아이템이 없을 때)
+        self.empty_label = QLabel("트레이를 올려주세요")
+        self.empty_label.setStyleSheet("""
+            font-size: 45px;
+            color: rgba(0, 0, 0, 0.3);
+            padding: 50px;
+        """)
+        self.empty_label.setAlignment(Qt.AlignmentFlag.AlignCenter)
+        self.scroll_layout.addWidget(self.empty_label)
         
         self.scroll_layout.addStretch()
         scroll_area.setWidget(self.scroll_content)
@@ -163,16 +289,594 @@ class ScanScreen(QWidget):
     def add_product(self, product):
         self.selected_items.append(product)
         print(f"선택됨: {product['name']}")
+    
+    def add_scanned_item(self, item_name: str):
+        """스캔된 아이템 이름으로 서버에서 정보 조회 후 장바구니에 추가"""
+        # 이미 있는 아이템인지 확인 (이름 기준)
+        existing_item = None
+        for item in self.data.items:
+            if item["name"] == item_name:
+                existing_item = item
+                break
+
+        if existing_item:
+            # 수량 증가
+            existing_item["qty"] += 1
+            self.update_item_list()
+            logging.info(f"아이템 수량 증가: {item_name}")
+        else:
+            # 서버에서 item_id, price_won 조회
+            self.fetch_menu_item(item_name)
+
+    def fetch_menu_item(self, item_name: str):
+        """서버에서 메뉴 아이템 정보 조회"""
+        self.menu_worker = APIWorker(
+            api_url=f"/api/v1/menu-items/{item_name}",
+            method="GET"
+        )
+        self.menu_worker.success.connect(lambda result: self.on_menu_item_fetched(result))
+        self.menu_worker.error.connect(lambda err: self.on_menu_item_error(err, item_name))
+        self.menu_worker.start()
+
+    def on_menu_item_fetched(self, result):
+        """메뉴 아이템 정보 조회 성공"""
+        self.data.items.append({
+            "item_id": result["item_id"],
+            "name": result["name_kor"],
+            "qty": 1,
+            "unit_price": result["price_won"]
+        })
+        self.update_item_list()
+        logging.info(f"아이템 추가: {result['name_kor']} (id: {result['item_id']}, price: {result['price_won']})")
+
+    def on_menu_item_error(self, error_msg, item_name):
+        """메뉴 아이템 정보 조회 실패"""
+        logging.error(f"[메뉴조회] {item_name} 조회 실패: {error_msg}")
+    
+    def update_item_list(self):
+        """스크롤 영역의 아이템 목록 업데이트"""
+        # 기존 위젯 모두 제거
+        for i in reversed(range(self.scroll_layout.count())):
+            item = self.scroll_layout.itemAt(i)
+            if item.widget() and item.widget() != self.empty_label:
+                item.widget().deleteLater()
+            elif item.spacerItem():
+                self.scroll_layout.removeItem(item)
+        
+        # 아이템이 없으면 안내 메시지 표시
+        if not self.data.items:
+            self.empty_label.setText("트레이를 올려주세요")
+            self.empty_label.show()
+            if self.scroll_layout.indexOf(self.empty_label) == -1:
+                self.scroll_layout.addWidget(self.empty_label)
+        else:
+            self.empty_label.hide()
+            # 아이템 목록 표시
+            for item in self.data.items:
+                item_container = QWidget()
+                item_container.setFixedSize(954, 100)
+                item_container.setStyleSheet("""
+                    background-color: rgba(250, 243, 225, 0.7);
+                    border-radius: 10px;
+                """)
+
+                item_layout = QHBoxLayout(item_container)
+                item_layout.setContentsMargins(30, 15, 30, 15)
+
+                # 이름 (왼쪽)
+                name_label = QLabel(item['name'])
+                name_label.setStyleSheet("font-size: 36px; background: transparent;")
+                name_label.setAlignment(Qt.AlignmentFlag.AlignLeft | Qt.AlignmentFlag.AlignVCenter)
+
+                # 단가 x 개수 (오른쪽)
+                price_label = QLabel(f"{item['unit_price']:,}원 x {item['qty']}")
+                price_label.setStyleSheet("font-size: 36px; background: transparent;")
+                price_label.setAlignment(Qt.AlignmentFlag.AlignRight | Qt.AlignmentFlag.AlignVCenter)
+
+                item_layout.addWidget(name_label)
+                item_layout.addWidget(price_label)
+
+                self.scroll_layout.addWidget(item_container, alignment=Qt.AlignmentFlag.AlignHCenter)
+        
+        self.scroll_layout.addStretch()
+
+    # ========================================
+    # 웹캠 관련 메서드
+    # ========================================
+    def start_camera(self):
+        """웹캠 시작"""
+        if self.cap is not None:
+            return  # 이미 실행 중
+
+        """ for test
+        self.cap = cv2.VideoCapture(0)
+        self.cap = cv2.VideoCapture(self.test_image_path)
+        if not self.cap.isOpened():
+            logging.error("[웹캠] 카메라를 열 수 없습니다")
+            return
+
+        logging.info("[웹캠] 카메라 시작")
+
+        # 30fps로 프레임 업데이트
+        self.camera_timer = QTimer()
+        self.camera_timer.timeout.connect(self.update_frame)
+        self.camera_timer.start(33)  # ~30fps
+
+        """
+
+        # 테스트 이미지 로드
+        self.current_frame = cv2.imread(self.test_image_path)
+        if self.current_frame is None:
+            logging.error(f"[테스트] 이미지를 로드할 수 없습니다: {self.test_image_path}")
+            return
+
+        logging.info(f"[테스트] 이미지 로드 완료: {self.test_image_path}")
+
+        # 화면에 이미지 표시
+        self.display_frame(self.current_frame)
+
+        # 바로 AI 추론 시작
+        self.start_inference()
+
+    def stop_camera(self):
+        """웹캠 중지"""
+        if self.camera_timer:
+            self.camera_timer.stop()
+            self.camera_timer = None
+
+        if self.cap:
+            self.cap.release()
+            self.cap = None
+            logging.info("[웹캠] 카메라 중지")
+
+    def update_frame(self):
+        """웹캠 프레임 업데이트"""
+        if self.cap is None or not self.cap.isOpened():
+            return
+
+        ret, frame = self.cap.read()
+        if not ret:
+            return
+
+        # 현재 프레임 저장 (AI 추론용)
+        self.current_frame = frame.copy()
+
+        # 트레이 감지 로직
+        self.detect_tray(frame)
+
+        # BGR -> RGB 변환
+        rgb_frame = cv2.cvtColor(frame, cv2.COLOR_BGR2RGB)
+
+        # QImage로 변환
+        h, w, ch = rgb_frame.shape
+        bytes_per_line = ch * w
+        qt_image = QImage(rgb_frame.data, w, h, bytes_per_line, QImage.Format.Format_RGB888)
+
+        # QLabel 크기에 맞게 스케일링
+        scaled_pixmap = QPixmap.fromImage(qt_image).scaled(
+            self.video_label.size(),
+            Qt.AspectRatioMode.KeepAspectRatio,
+            Qt.TransformationMode.SmoothTransformation
+        )
+        self.video_label.setPixmap(scaled_pixmap)
+
+
+    def draw_detection_overlay(self, frame):
+        """Detection 결과를 프레임에 오버레이"""
+        from PIL import Image, ImageDraw, ImageFont
+        import numpy as np
+
+        # 색상 정의 (BGR for OpenCV, RGB for PIL)
+        COLORS = {
+            "AUTO": {"bgr": (0, 255, 0), "rgb": (0, 255, 0)},
+            "REVIEW": {"bgr": (0, 165, 255), "rgb": (255, 165, 0)},
+            "UNKNOWN": {"bgr": (0, 0, 255), "rgb": (255, 0, 0)},
+        }
+
+        # 한글 폰트 로드 (시스템 폰트 사용)
+        font_path = "/usr/share/fonts/truetype/nanum/NanumGothicBold.ttf"
+        try:
+            font = ImageFont.truetype(font_path, 36)
+        except:
+            # 폰트가 없으면 기본 폰트 사용 (한글 깨질 수 있음)
+            font = ImageFont.load_default()
+
+        # OpenCV 이미지 -> PIL 이미지 변환
+        frame_rgb = cv2.cvtColor(frame, cv2.COLOR_BGR2RGB)
+        pil_image = Image.fromarray(frame_rgb)
+        draw = ImageDraw.Draw(pil_image)
+
+        for det in self.detection_results:
+            bbox = det.get("bbox")
+            if not bbox or len(bbox) != 4:
+                continue
+
+            x1, y1, x2, y2 = [int(v) for v in bbox]
+            state = det.get("state", "UNKNOWN")
+            item_id = det.get("best_item_id")
+            confidence = det.get("confidence", 0)
+
+            # 한글 이름 사용 (central-api에서 label_text에 한글 이름 포함)
+            label = det.get("label_text", f"item-{item_id}")
+
+            # 색상 선택
+            color_set = COLORS.get(state, COLORS["UNKNOWN"])
+
+            # 바운딩 박스 그리기 (PIL)
+            draw.rectangle([x1, y1, x2, y2], outline=color_set["rgb"], width=3)
+
+            # 라벨 텍스트 준비
+            label_text = f"{label} ({confidence:.0%})"
+
+            # 텍스트 크기 계산
+            text_bbox = draw.textbbox((0, 0), label_text, font=font)
+            text_w = text_bbox[2] - text_bbox[0]
+            text_h = text_bbox[3] - text_bbox[1]
+
+            # 라벨 배경 그리기
+            label_y = max(0, y1 - text_h - 8)
+            draw.rectangle(
+                [x1, label_y, x1 + text_w + 8, y1],
+                fill=color_set["rgb"]
+            )
+
+            # 라벨 텍스트 그리기 (흰색)
+            draw.text((x1 + 4, label_y + 2), label_text, font=font, fill=(255, 255, 255))
+
+        # PIL 이미지 -> OpenCV 이미지 변환
+        frame = cv2.cvtColor(np.array(pil_image), cv2.COLOR_RGB2BGR)
+
+        return frame
+
+    def detect_tray(self, frame):
+        """ROI 영역의 밝기 변화로 트레이 감지 (검은색 -> 흰색)"""
+        if self.is_inferring:
+            return  # 추론 중이면 감지 안함
+
+        h, w = frame.shape[:2]
+        x1 = int(w * self.ROI_RATIO[0])
+        y1 = int(h * self.ROI_RATIO[1])
+        x2 = int(w * self.ROI_RATIO[2])
+        y2 = int(h * self.ROI_RATIO[3])
+
+        # ROI 영역 추출
+        roi = frame[y1:y2, x1:x2]
+
+        # 그레이스케일 변환 후 평균 밝기 계산
+        gray_roi = cv2.cvtColor(roi, cv2.COLOR_BGR2GRAY)
+        avg_brightness = gray_roi.mean()
+
+        # 트레이 감지 (밝기가 임계값 이상이면 트레이 있음)
+        is_bright = avg_brightness >= self.BRIGHTNESS_THRESHOLD
+
+        if is_bright:
+            if not self.tray_detected:
+                # 트레이가 새로 감지됨
+                self.tray_detected = True
+                self.stable_count = 0
+                logging.info(f"[트레이감지] 트레이 감지됨 (밝기: {avg_brightness:.1f})")
+            else:
+                # 트레이가 계속 있음 - 안정화 카운트 증가
+                self.stable_count += 1
+                if self.stable_count == self.STABLE_THRESHOLD:
+                    logging.info("[트레이감지] 트레이 안정화 - AI 추론 시작")
+                    self.start_inference()
+        else:
+            # 트레이 없음 (어두움)
+            if self.tray_detected:
+                logging.info(f"[트레이감지] 트레이 제거됨 (밝기: {avg_brightness:.1f})")
+            self.tray_detected = False
+            self.stable_count = 0
+
+    def hideEvent(self, event):
+        """화면이 숨겨질 때 웹캠 및 스레드 중지"""
+        super().hideEvent(event)
+        self.stop_camera()
+        self.stop_workers()
+
+    def stop_workers(self):
+        """실행 중인 Worker 스레드 정리"""
+        workers = [
+            'infer_worker',
+            'admin_call_worker',
+            'session_worker',
+            'menu_worker',
+        ]
+
+        for worker_name in workers:
+            if hasattr(self, worker_name):
+                worker = getattr(self, worker_name)
+                if worker is not None and worker.isRunning():
+                    worker.quit()
+                    worker.wait(2000)
+                setattr(self, worker_name, None)
+
+    def call_admin(self):
+        """관리자 호출 - 서버에 리뷰 생성 요청"""
+        session_id = self.data.get_session_id()
+        if not session_id:
+            logging.warning("[관리자호출] 세션 ID가 없습니다")
+            return
+
+        review_data = {
+            "session_id": session_id,
+            "reason": "ADMIN_CALL"
+        }
+
+        self.admin_call_worker = APIWorker(
+            api_url="/api/v1/reviews",
+            method="POST",
+            data=review_data
+        )
+        self.admin_call_worker.success.connect(self.on_admin_call_success)
+        self.admin_call_worker.error.connect(self.on_admin_call_error)
+        self.admin_call_worker.start()
+
+        logging.info(f"[관리자호출] 요청 전송: session_id={session_id}")
+
+    def call_admin_auto(self):
+        """관리자 호출 - 서버에 리뷰 생성 요청"""
+        session_id = self.data.get_session_id()
+        if not session_id:
+            logging.warning("[관리자호출] 세션 ID가 없습니다")
+            return
+
+        review_data = {
+            "session_id": session_id,
+            "reason": "ADMIN_CALL"
+        }
+
+        self.admin_call_worker = APIWorker(
+            api_url="/api/v1/reviews",
+            method="POST",
+            data=review_data
+        )
+        self.admin_call_worker.success.connect(self.on_admin_call_auto_success)
+        self.admin_call_worker.error.connect(self.on_admin_call_error)
+        self.admin_call_worker.start()
+
+        logging.info(f"[관리자호출] 요청 전송: session_id={session_id}")
+
+    def on_admin_call_success(self, result):
+        """관리자 호출 성공"""
+        logging.info(f"[관리자호출] 성공: {result}")
+        call_success_popup = CallSuccessPopup()
+        call_success_popup.exec()
+
+        if call_success_popup.result == 'home':
+            self.switch_callback('home')
+
+    def on_admin_call_auto_success(self, result):
+        """관리자 호출 성공"""
+        logging.info(f"[관리자호출] 성공: {result}")
+        call_success_popup = CallAutoSuccessPopup()
+        call_success_popup.exec()
+
+        if call_success_popup.result == 'home':
+            self.switch_callback('home')
+
+    def on_admin_call_error(self, error_msg):
+        """관리자 호출 실패"""
+        logging.error(f"[관리자호출] 실패: {error_msg}")
+        call_fail_popup = CallFailPopup()
+        call_fail_popup.exec()
+
+        if call_fail_popup.result == 'home':
+            self.switch_callback('home')
+        elif call_fail_popup.result == 'retry':
+            self.switch_callback('scan')
+
+    # ========================================
+    # AI 추론 관련 메서드
+    # ========================================
+    def start_inference(self):
+        """현재 프레임으로 AI 추론 시작"""
+        if self.is_inferring:
+            logging.warning("[AI추론] 이미 추론 중입니다")
+            return
+
+        if self.current_frame is None:
+            logging.warning("[AI추론] 캡처된 프레임이 없습니다")
+            return
+
+        if not self.session_uuid:
+            logging.error("[AI추론] 세션 UUID가 없습니다")
+            return
+
+        self.is_inferring = True
+        self.empty_label.setText("추론중입니다")
+        self.empty_label.show()
+        logging.info("[AI추론] AI 추론 시작")
+
+        # 테스트: 웹캠 대신 테스트 이미지 사용
+        if os.path.exists(self.test_image_path):
+            with open(self.test_image_path, "rb") as f:
+                frame_bytes = f.read()
+            logging.info(f"[AI추론] 테스트 이미지 사용: {self.test_image_path}")
+        else:
+            # 프레임을 JPEG로 인코딩
+            _, buffer = cv2.imencode('.jpg', self.current_frame)
+            frame_bytes = buffer.tobytes()
+
+        # AI 추론 Worker 실행
+        self.infer_worker = InferWorker(
+            session_uuid=self.session_uuid,
+            frame_bytes=frame_bytes,
+            store_code=f"STORE-{self.store_id:02d}",
+            device_code=f"POS-{self.checkout_device_id:02d}"
+        )
+        self.infer_worker.success.connect(self.on_inference_success)
+        self.infer_worker.error.connect(self.on_inference_error)
+        self.infer_worker.start()
+
+    def on_inference_success(self, result):
+        """AI 추론 성공"""
+        self.is_inferring = False
+        decision = result.get("decision", "UNKNOWN")
+        overlap_score = result.get("overlap_score")
+        result_json = result.get("result_json", {})
+
+        logging.info(f"[AI추론] 결과: decision={decision}, overlap_score={overlap_score}, result_json={result_json}")
+
+        if overlap_score is not None and overlap_score >= self.OVERLAP_THRESHOLD:
+            logging.warning(f"[AI추론] 겹침 감지: overlap_score={overlap_score}")
+            self.show_overlap_popup()
+            return
+
+        if decision == "AUTO" or decision == "REVIEW":
+            # Detection 결과 저장 (bbox 오버레이용)
+            self.detection_results = result_json.get("instances", [])
+            logging.info(f"[AI추론] Detection 결과 저장: {len(self.detection_results)}개 인스턴스")
+
+            # 화면에 detection 결과 표시
+            if self.current_frame is not None:
+                self.display_frame(self.current_frame)
+
+            # 인식된 아이템을 장바구니에 추가 + 결제 버튼 활성화
+            self.process_inference_result(result_json)
+            self.pay_btn.setEnabled(True)
+            
+        else:
+            logging.warning(f"[AI추론] 알 수 없는 결과: {decision}")
+            self.call_admin_auto()
+            self.detection_results = []
+            if self.current_frame is not None:
+                self.display_frame(self.current_frame)
+            
+            self.pay_btn.setEnabled(False)
+
+    def display_frame(self, frame):
+        """프레임을 화면에 표시"""
+        # Detection 결과가 있으면 bbox 오버레이
+        display_frame = frame.copy()
+        if self.detection_results:
+            display_frame = self.draw_detection_overlay(display_frame)
+
+        # BGR -> RGB 변환
+        rgb_frame = cv2.cvtColor(display_frame, cv2.COLOR_BGR2RGB)
+
+        # QImage로 변환
+        h, w, ch = rgb_frame.shape
+        bytes_per_line = ch * w
+        qt_image = QImage(rgb_frame.data, w, h, bytes_per_line, QImage.Format.Format_RGB888)
+
+        # QLabel 크기에 맞게 스케일링
+        scaled_pixmap = QPixmap.fromImage(qt_image).scaled(
+            self.video_label.size(),
+            Qt.AspectRatioMode.KeepAspectRatio,
+            Qt.TransformationMode.SmoothTransformation
+        )
+        self.video_label.setPixmap(scaled_pixmap)
+
+    def show_overlap_popup(self):
+        """겹침 감지 팝업 표시"""
+        popup = OverlapPopup(self)
+        popup.exec()
+
+        # 팝업 닫힌 후 트레이 감지 상태 초기화 (재스캔 유도)
+        self.tray_detected = False
+        self.stable_count = 0
+
+    def on_inference_error(self, error_msg):
+        """AI 추론 실패"""
+        self.is_inferring = False
+        self.empty_label.setText("트레이를 올려주세요")
+        logging.error(f"[AI추론] 오류: {error_msg}")
+
+    def process_inference_result(self, result_json):
+        """AI 추론 결과를 장바구니에 반영"""
+        # result_json.items 또는 result_json.instances에서 아이템 추출
+        items = result_json.get("items") or result_json.get("instances") or []
+
+        # 조회할 item_id 목록 수집
+        self.pending_items = []
+        for item in items:
+            item_id = item.get("item_id") or item.get("best_item_id") or item.get("menu_item_id")
+            qty = item.get("qty") or item.get("count") or 1
+
+            if item_id is None:
+                continue
+
+            self.pending_items.append({"item_id": item_id, "qty": qty})
+
+        # 순차적으로 메뉴 정보 조회
+        self.fetch_next_menu_item()
+
+    def fetch_next_menu_item(self):
+        """대기 중인 아이템의 메뉴 정보 조회"""
+        if not self.pending_items:
+            # 모든 아이템 조회 완료 - UI 업데이트
+            self.update_item_list()
+            logging.info(f"[AI추론] 장바구니 업데이트 완료: {len(self.data.items)}개 아이템")
+            return
+
+        item = self.pending_items.pop(0)
+        item_id = item["item_id"]
+        qty = item["qty"]
+
+        # 서버에서 메뉴 정보 조회
+        self.menu_worker = APIWorker(
+            api_url=f"/api/v1/menu-items/by-id/{item_id}",
+            method="GET"
+        )
+        self.menu_worker.success.connect(lambda result: self.on_menu_fetched(result, qty))
+        self.menu_worker.error.connect(lambda err: self.on_menu_fetch_error(err, item_id, qty))
+        self.menu_worker.start()
+
+    def on_menu_fetched(self, result, qty):
+        """메뉴 정보 조회 성공"""
+        item_id = result.get("item_id")
+        name = result.get("name_kor") or result.get("name_eng") or f"상품 #{item_id}"
+        unit_price = result.get("price_won") or 0
+
+        # 이미 장바구니에 있는지 확인
+        existing = next((i for i in self.data.items if i["item_id"] == item_id), None)
+        if existing:
+            existing["qty"] += qty
+        else:
+            self.data.items.append({
+                "item_id": item_id,
+                "name": name,
+                "qty": qty,
+                "unit_price": unit_price
+            })
+
+        logging.info(f"[메뉴조회] {name} (id:{item_id}, {unit_price}원) 추가됨")
+
+        # 다음 아이템 조회
+        self.fetch_next_menu_item()
+
+    def on_menu_fetch_error(self, error_msg, item_id, qty):
+        """메뉴 정보 조회 실패 - 기본값으로 추가"""
+        logging.error(f"[메뉴조회] item_id={item_id} 조회 실패: {error_msg}")
+
+        # 기본값으로 장바구니에 추가
+        existing = next((i for i in self.data.items if i["item_id"] == item_id), None)
+        if existing:
+            existing["qty"] += qty
+        else:
+            self.data.items.append({
+                "item_id": item_id,
+                "name": f"상품 #{item_id}",
+                "qty": qty,
+                "unit_price": 0
+            })
+
+        # 다음 아이템 조회
+        self.fetch_next_menu_item()
+
 
 # 테스트 코드
 if __name__ == '__main__':
     import sys
+    from model.cart_data import CartData
     app = QApplication(sys.argv)
-    
-    def dummy_callback():
-        print("Callback called")
-    
-    window = ScanScreen(dummy_callback)
+
+    def dummy_callback(screen):
+        print(f"Callback called: {screen}")
+
+    dummy_data = CartData()
+    window = ScanScreen(dummy_callback, dummy_data, store_id=1, device_id=1)
     window.show()
-    
+
     sys.exit(app.exec())

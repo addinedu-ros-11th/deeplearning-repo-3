@@ -41,7 +41,8 @@ Table device {
 
 Table menu_item {
   item_id int [pk, increment]
-  name varchar(128) [not null]
+  name_eng varchar(128) [not null]
+  name_kor varchar(128) [not null]
   category varchar(64)
   price_won int [not null]
   weight_grams int
@@ -58,20 +59,14 @@ Table prototype_set {
   status prototype_set_status [not null] // ACTIVE/INACTIVE
   notes varchar(256)
   created_at datetime [not null]
-}
 
-Table menu_item_prototype {
-  prototype_id int [pk, increment]
-  item_id int [not null, ref: > menu_item.item_id]
-  prototype_set_id int [not null, ref: > prototype_set.prototype_set_id]
-  image_gcs_uri varchar(512) [not null]
-  embedding_gcs_uri varchar(512) [not null]
-  is_active boolean [not null]
-  created_at datetime [not null]
+  // ✅ 통합 인덱스(25개 전체) 아티팩트 위치
+  index_npy_gcs_uri varchar(512) [not null]   // 예: gs://gcs-bucket-models/.../prototype_index.npy
+  index_meta_gcs_uri varchar(512) [not null]  // 예: gs://gcs-bucket-models/.../prototype_index.json
 
   indexes {
-    (item_id, is_active)
-    (prototype_set_id)
+    (status)
+    (created_at)
   }
 }
 

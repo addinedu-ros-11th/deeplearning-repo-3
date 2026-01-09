@@ -53,6 +53,19 @@ class CctvEventStatus(str, enum.Enum):
     DISMISSED = "DISMISSED"
 
 # -----------------------
+# Inference Job
+# -----------------------
+class InferenceJobType(str, enum.Enum):
+    TRAY = "TRAY"
+    CCTV = "CCTV"
+
+class InferenceJobStatus(str, enum.Enum):
+    PENDING = "PENDING"
+    CLAIMED = "CLAIMED"
+    DONE = "DONE"
+    FAILED = "FAILED"
+
+# -----------------------
 # Master
 # -----------------------
 class Store(Base):
@@ -91,48 +104,41 @@ class MenuItem(Base):
     __tablename__ = "menu_item"
 
     item_id = Column(Integer, primary_key=True, autoincrement=True)
-    name = Column(String(128), nullable=False)
-    category = Column(String(64))
+    name_eng = Column(String(128), nullable=False)
+    name_kor = Column(String(128), nullable=False)
+    category_id = Column(Integer, ForeignKey('category.category_id'))
     price_won = Column(Integer, nullable=False)
     weight_grams = Column(Integer)
     active = Column(Boolean, nullable=False)
     created_at = Column(DateTime, nullable=False)
 
-    prototypes = relationship("MenuItemPrototype", back_populates="menu_item")
     order_lines = relationship("OrderLine", back_populates="menu_item")
 
+    category = relationship("Category", back_populates="menu_items")
     __table_args__ = (
-        Index("ix_menu_item_active_category", "active", "category"),
+        Index("ix_menu_item_active_category_id", "active", "category_id"),
     )
+
+class Category(Base):
+    __tablename__ = 'category'
+    
+    category_id = Column(Integer, primary_key=True)
+    name = Column(String)
+    created_at = Column(DateTime, nullable=False)
+    
+    menu_items = relationship("MenuItem", back_populates="category")
 
 class PrototypeSet(Base):
     __tablename__ = "prototype_set"
 
     prototype_set_id = Column(Integer, primary_key=True, autoincrement=True)
-    status = Column(Enum(PrototypeSetStatus), nullable=False)
+    status = Column(Enum(PrototypeSetStatus), nullable=False)  # ACTIVE/INACTIVE
     notes = Column(String(256))
     created_at = Column(DateTime, nullable=False)
 
-    prototypes = relationship("MenuItemPrototype", back_populates="prototype_set")
-
-class MenuItemPrototype(Base):
-    __tablename__ = "menu_item_prototype"
-
-    prototype_id = Column(Integer, primary_key=True, autoincrement=True)
-    item_id = Column(Integer, ForeignKey("menu_item.item_id"), nullable=False)
-    prototype_set_id = Column(Integer, ForeignKey("prototype_set.prototype_set_id"), nullable=False)
-    image_gcs_uri = Column(String(512), nullable=False)
-    embedding_gcs_uri = Column(String(512), nullable=False)
-    is_active = Column(Boolean, nullable=False)
-    created_at = Column(DateTime, nullable=False)
-
-    menu_item = relationship("MenuItem", back_populates="prototypes")
-    prototype_set = relationship("PrototypeSet", back_populates="prototypes")
-
-    __table_args__ = (
-        Index("ix_mip_item_active", "item_id", "is_active"),
-        Index("ix_mip_proto_set", "prototype_set_id"),
-    )
+    # ✅ 통합 인덱스(25개 전체) 아티팩트 위치
+    index_npy_gcs_uri = Column(String(512), nullable=False)
+    index_meta_gcs_uri = Column(String(512), nullable=False)
 
 # -----------------------
 # Tray / Checkout
@@ -178,6 +184,44 @@ class RecognitionRun(Base):
     __table_args__ = (
         UniqueConstraint("session_id", "attempt_no", name="uq_run_session_attempt"),
         Index("ix_run_session_created", "session_id", "created_at"),
+    )
+
+class InferenceJob(Base):
+    __tablename__ = "inference_job"
+
+    job_id = Column(BigInteger, primary_key=True, autoincrement=True)
+    job_type = Column(Enum(InferenceJobType), nullable=False)
+    status = Column(Enum(InferenceJobStatus), nullable=False)
+
+    store_id = Column(Integer, ForeignKey("store.store_id"), nullable=False)
+    device_id = Column(Integer, ForeignKey("device.device_id"), nullable=False)
+
+    # TRAY job에 사용
+    session_id = Column(BigInteger, ForeignKey("tray_session.session_id"))
+    attempt_no = Column(Integer)  # TRAY: 1..attempt_limit
+    frame_gcs_uri = Column(String(512))
+
+    # 결과(선택): job 레벨에서도 보관
+    decision = Column(Enum(DecisionState))
+    run_id = Column(BigInteger, ForeignKey("recognition_run.run_id"))
+    result_json = Column(JSON)
+    error = Column(String(512))
+
+    # 워커 클레임 정보
+    worker_id = Column(String(64))
+    created_at = Column(DateTime, nullable=False)
+    claimed_at = Column(DateTime)
+    completed_at = Column(DateTime)
+
+    store = relationship("Store")
+    device = relationship("Device")
+    tray_session = relationship("TraySession")
+    recognition_run = relationship("RecognitionRun")
+
+    __table_args__ = (
+        Index("ix_job_status_created", "status", "created_at"),
+        Index("ix_job_session", "session_id"),
+        Index("ix_job_store_created", "store_id", "created_at"),
     )
 
 class Review(Base):

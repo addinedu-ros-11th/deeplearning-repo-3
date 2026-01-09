@@ -1,5 +1,5 @@
 [Unit]
-Description=Smart Cafe AI Inference API
+Description=Bake Sight AI Inference API
 After=network.target
 
 [Service]

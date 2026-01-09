@@ -10,6 +10,5 @@ api_router.include_router(review.router, tags=["review"])
 api_router.include_router(order.router, tags=["order"])
 api_router.include_router(cctv.router, tags=["cctv"])
 api_router.include_router(dashboard.router, tags=["dashboard"])
-
-api_router.include_router(prototype.router, tags=["prototype"])
 api_router.include_router(inference.router, tags=["inference"])
+api_router.include_router(prototype.router, tags=["prototype"])

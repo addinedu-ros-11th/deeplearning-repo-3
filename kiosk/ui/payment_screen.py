@@ -4,15 +4,21 @@ from PyQt6.QtCore import Qt, QTimer, QPropertyAnimation, QEasingCurve, QAbstract
 from PyQt6.QtWidgets import QGraphicsOpacityEffect
 from popup.payment_popup import PaymentTimeoutPopup, PaymentCompletePopup
 from time import time
+from datetime import datetime
+from thread.order_save_worker import OrderSaveWorker
+import logging
+from arduino.check_pay import RFIDPayment
 
 class PaymentScreen(QWidget):
-    def __init__(self, switch_callback):
+    def __init__(self, switch_callback, data):
         super().__init__()
         self.switch_callback = switch_callback
-        self.is_payed = False
+        self.is_payed = "NOT_CONNECTED_CARD"
         self.timer_started = False
         self.timeout_timer = None
+        self.data = data
         self.init_ui()
+        self.payment_class = RFIDPayment()
     
     def init_ui(self):
         layout = QVBoxLayout()
@@ -80,9 +86,18 @@ class PaymentScreen(QWidget):
     def showEvent(self, event):
         """화면이 표시될 때 timer 관련 변수 초기화"""
         super().showEvent(event)
-        if not self.timer_started:
-            self.timer_started = True
-            self.start_timeout_timer()
+        if self.timeout_timer and self.timeout_timer.isActive():
+            self.timeout_timer.stop()
+        
+        self.timer_started = False
+        self.is_payed = "NOT_CONNECTED_CARD"
+
+        self.payment_class.reset()
+
+        self.timer_started = True
+        self.start_timeout_timer()
+
+        logging.info("[PaymentScreen] 결제 화면 초기화 완료")
 
     def start_timeout_timer(self):
         """5초 후 타임아웃 체크"""
@@ -93,48 +108,111 @@ class PaymentScreen(QWidget):
     def check_payment_status(self):
         """결제 상태 확인"""
         self.timeout_timer.stop()
-        
-        if not self.is_payed:
-            timeout_popup = PaymentTimeoutPopup()
-            timeout_popup.exec()
+        self.is_payed = self.payment_class.get_status()
+
+        if self.is_payed == "PAY_OK":
+            self._on_payment_success()
+
+        else:
+            if self.is_payed == "NO_MONEY":
+                payment_fail_popup = PaymentTimeoutPopup("잔액이 부족합니다.")
             
-            if timeout_popup.result == 'home':
+            elif self.is_payed == "NOT_CONNECTED_CARD":
+                payment_fail_popup = PaymentTimeoutPopup("결제 시간이 초과됐습니다.")
+
+            payment_fail_popup.exec()
+            
+            if payment_fail_popup.result == 'home':
                 self.switch_callback('home')
-            elif timeout_popup.result == 'retry':
-                # 재시도 - 타이머 재시작
+            elif payment_fail_popup.result == 'retry':
                 self.timer_started = False
                 self.start_timeout_timer()
-        else:
-            # 결제 완료
-            complete_popup = PaymentCompletePopup()
-            complete_popup.exec()
-            
-            if complete_popup.result == 'home':
-                self.switch_callback('home')
-    
-    def on_payment_success(self):
-        """RFID 결제 성공 시 호출할 메서드"""
-        self.is_payed = True
         
+        self.payment_class.reset()
+    
+    def _on_payment_success(self):
+        """RFID 결제 성공 시 호출할 메서드"""
+        self.is_payed = "PAY_OK"
+
         # 타이머가 있고 실행 중이면 중지
         if self.timeout_timer and self.timeout_timer.isActive():
             self.timeout_timer.stop()
+
+        # 주문 정보를 서버에 저장
+        self.save_order_to_server()
+
+    def save_order_to_server(self):
+        """장바구니 아이템을 서버에 저장"""
         
+        # OrderLine 형식으로 변환
+        lines = []
+        item_names = self.data.get_item_name()
+        item_quantities = self.data.get_item_quantity()
+        
+        # 각 아이템을 OrderLine 형식으로 변환
+        for i, (name, qty) in enumerate(zip(item_names, item_quantities)):
+            lines.append({
+                "item_id": self.data.get_item_ids()[i],
+                "qty": qty,
+                "unit_price_won": self.data.get_unit_prices()[i],
+                "line_amount_won": self.data.get_unit_prices()[i] * qty
+            })
+        
+        order_data = {
+            "store_id": self.data.get_store_id(),
+            "session_id": self.data.get_session_id(),
+            "total_amount_won": self.data.get_total_amount(),
+            "lines": lines
+        }
+
+        logging.info(f"[TEST] 주문 데이터: {order_data}")
+        self.order_worker = OrderSaveWorker(
+            api_url="/api/v1/orders/save",
+            order_data=order_data
+        )
+        
+        # 신호 연결
+        self.order_worker.success.connect(self.on_order_save_success)
+        self.order_worker.error.connect(self.on_order_save_error)
+        
+        logging.info("[TEST] OrderSaveWorker 스레드 시작")
+        self.order_worker.start()
+
+    def on_order_save_success(self, result):
+        """주문 저장 성공"""
+        logging.info(f"[주문저장] 주문 저장 성공: {result}")
+
+        # 장바구니 초기화
+        self.data.clear()
+
+        # 결제 완료 팝업 표시
         complete_popup = PaymentCompletePopup()
         complete_popup.exec()
-        
+
+        if complete_popup.result == 'home':
+            self.switch_callback('home')
+
+    def on_order_save_error(self, error_msg):
+        """주문 저장 실패"""
+        logging.error(f"[주문저장] 주문 저장 실패: {error_msg}")
+
+        complete_popup = PaymentCompletePopup()
+        complete_popup.exec()
+
         if complete_popup.result == 'home':
             self.switch_callback('home')
 
 # 테스트 코드
 if __name__ == '__main__':
     import sys
+    from model.cart_data import CartData
     app = QApplication(sys.argv)
-    
+
     def dummy_callback(screen):
         print(f"Callback called: {screen}")
-    
-    window = PaymentScreen(dummy_callback)
+
+    dummy_data = CartData()
+    window = PaymentScreen(dummy_callback, dummy_data)
     window.show()
-    
+
     sys.exit(app.exec())
