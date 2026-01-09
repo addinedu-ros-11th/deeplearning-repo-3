@@ -68,7 +68,7 @@ def save_order(body: OrderCreate, db: Session = Depends(get_db)):
         store_id=body.store_id,
         session_id=body.session_id,
         total_amount_won=body.total_amount_won,
-        status=OrderStatus.PENDING,
+        status=OrderStatus.PAID,
         created_at=utcnow()
     )
     db.add(order)
@@ -86,7 +86,7 @@ def save_order(body: OrderCreate, db: Session = Depends(get_db)):
         db.add(order_line)
     
     # 세션 상태 업데이트 (주문 완료)
-    session.status = TraySessionStatus.COMPLETED  # 또는 적절한 상태
+    session.status = TraySessionStatus.PAID  # 또는 적절한 상태
     session.ended_at = utcnow()
     session.end_reason = "ORDER_COMPLETED"
     

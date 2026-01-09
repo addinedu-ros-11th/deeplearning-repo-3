@@ -195,7 +195,7 @@ class CheckScreen(QWidget):
         button_layout.setSpacing(100)
         button_layout.setContentsMargins(20, 0, 20, 100)
         
-        call_btn = QPushButton("관리자 호출")
+        call_btn = QPushButton("뒤로")
         call_btn.setStyleSheet("""
             QPushButton {
                 font-size: 40px;
@@ -209,7 +209,7 @@ class CheckScreen(QWidget):
                 background-color: rgba(230, 218, 189, 0.5);
             }
         """)
-        call_btn.clicked.connect(self.call_admin)
+        call_btn.clicked.connect(lambda: self.switch_callback('scan'))
         
         pay_btn = QPushButton("결제")
         pay_btn.setStyleSheet("""
