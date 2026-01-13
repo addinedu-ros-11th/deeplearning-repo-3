@@ -31,6 +31,11 @@ import sys
 from YOLOwrapper import FallDownDetection as FallDownDetectionWrapper, YOLOWrapper
 from concurrent.futures import ThreadPoolExecutor, as_completed
 import asyncio
+import subprocess
+from collections import deque
+
+_encoding_executor = ThreadPoolExecutor(max_workers=2, thread_name_prefix="ffmpeg-")
+_upload_executor = ThreadPoolExecutor(max_workers=2, thread_name_prefix="gcs-upload-")
 
 # 로거 설정
 scanner_logger = logging.getLogger("scanner")
@@ -432,8 +437,11 @@ class InferenceEngine:
         GCS_BUCKET_CCTV = os.getenv("GCS_BUCKET_CCTV")
 
         if clip_local_path:
-            frames, fps, width, height = self._decode_video(clip_local_path)
-        elif frames_b64:
+            return self._infer_cctv_streaming(
+                clip_local_path, store_code, device_code, GCS_BUCKET_CCTV, now
+            )
+
+        if frames_b64:
             frames = self._decode_b64_frames(frames_b64)
             fps = 15
             if frames:
@@ -446,6 +454,166 @@ class InferenceEngine:
         if not frames:
             return {"events": []}
 
+        return self._infer_cctv_batch(
+            frames, fps, width, height, store_code, device_code, GCS_BUCKET_CCTV, now
+        )
+
+    def _infer_cctv_streaming(
+        self,
+        video_path: str,
+        store_code: str,
+        device_code: str,
+        gcs_bucket: str,
+        now: datetime,
+    ) -> dict[str, Any]:
+        """
+        스트리밍 방식 CCTV 추론
+        """
+        fps, width, height, total_frames = self._get_video_info(video_path)
+        if total_frames == 0:
+            return {"events": []}
+
+        # 롤링 버퍼: 클립 생성용 (최대 10초 분량)
+        buffer_size = fps * 10
+        clip_buffer = deque(maxlen=buffer_size)
+
+        # 감지 상태
+        events = []
+        detection_state = {
+            "violence": {"detected": False, "frame_idx": None, "confidence": 0.0},
+            "fall": {"detected": False, "frame_idx": None, "confidence": 0.0},
+            "auxiliary": {"detected": False, "frame_idx": None, "confidence": 0.0},
+        }
+
+        # 디텍터 초기화
+        if self.violence_classifier:
+            self.violence_classifier._reset()
+
+        frame_interval = 3  # 폭력 감지용 프레임 간격
+        probabilities = []
+        global_frame_idx = 0
+
+        # 스트리밍 청크 처리
+        for chunk, start_idx, chunk_fps, chunk_width, chunk_height in self._iter_video_chunks(video_path, chunk_size=100):
+            for local_idx, frame in enumerate(chunk):
+                frame_idx = start_idx + local_idx
+                global_frame_idx = frame_idx
+
+                # 롤링 버퍼에 추가
+                clip_buffer.append((frame_idx, frame.copy()))
+
+                # Violence 감지 (매 3프레임)
+                if self.violence_classifier and not detection_state["violence"]["detected"]:
+                    if frame_idx % frame_interval == 0:
+                        result = self.violence_classifier.process_frame(frame)
+                        if result.get("ready"):
+                            prob = result.get("probability", 0.0)
+                            probabilities.append(prob)
+                            if prob >= self.violence_classifier.threshold:
+                                detection_state["violence"]["detected"] = True
+                                detection_state["violence"]["frame_idx"] = frame_idx
+                                detection_state["violence"]["confidence"] = prob
+
+                # Fall 감지 (매 프레임)
+                if self.fall_detector and not detection_state["fall"]["detected"]:
+                    result = self.fall_detector.process_frame(frame)
+                    if result.get("is_fall"):
+                        detection_state["fall"]["detected"] = True
+                        detection_state["fall"]["frame_idx"] = frame_idx
+                        detection_state["fall"]["confidence"] = result.get("confidence", 0.0)
+
+                # Auxiliary 감지 (매 프레임)
+                if self.auxiliary_detector and not detection_state["auxiliary"]["detected"]:
+                    result = self.auxiliary_detector.process_frame(frame)
+                    if result.get("detected"):
+                        detection_state["auxiliary"]["detected"] = True
+                        detection_state["auxiliary"]["frame_idx"] = frame_idx
+                        detection_state["auxiliary"]["confidence"] = result.get("confidence", 0.0)
+
+        # 감지된 이벤트 처리 (백그라운드 인코딩)
+        background_tasks = []
+
+        for event_type, state in [
+            ("VIOLENCE", detection_state["violence"]),
+            ("FALL", detection_state["fall"]),
+            ("WHEELCHAIR", detection_state["auxiliary"]),
+        ]:
+            if not state["detected"]:
+                continue
+
+            # 클립 생성을 위한 프레임 추출
+            clip_frames = self._extract_clip_frames_from_buffer(
+                clip_buffer, state["frame_idx"], fps, clip_seconds=5
+            )
+
+            if clip_frames:
+                # 클립 경로 생성
+                timestamp = now.strftime("%Y%m%d_%H%M%S")
+                event_name = "fall_down" if event_type == "FALL" else event_type.lower()
+                local_clip_dir = os.path.join(settings.CACHE_DIR, f"{event_name}_clips")
+                _ensure_dir(local_clip_dir)
+                local_clip_path = os.path.join(local_clip_dir, f"cctv_{event_name}_{timestamp}.mp4")
+
+                # 백그라운드 인코딩 시작
+                encode_future = self._encode_clip_background(
+                    clip_frames, fps, width, height, local_clip_path
+                )
+                background_tasks.append((event_type, state, local_clip_path, encode_future))
+
+                # 이벤트 즉시 반환 (클립은 백그라운드에서 생성)
+                event_data = {
+                    "event_type": event_type,
+                    "confidence": state["confidence"],
+                    "started_at": now.replace(tzinfo=None).isoformat(sep=" "),
+                    "ended_at": now.replace(tzinfo=None).isoformat(sep=" "),
+                    "meta_json": {
+                        "mode": "streaming",
+                        "clip_path": local_clip_path,
+                        "clip_pending": True,  # 클립이 아직 생성 중임을 표시
+                    },
+                }
+                events.append(event_data)
+
+                # 백그라운드 GCS 업로드 시작 (인코딩 완료 후)
+                if gcs_bucket and store_code and device_code:
+                    blob_name = f"cctv_{event_name}_{timestamp}.mp4"
+                    self._upload_clip_background(local_clip_path, gcs_bucket, blob_name)
+
+        return {"events": events}
+
+    def _extract_clip_frames_from_buffer(
+        self,
+        clip_buffer: deque,
+        detection_frame_idx: int,
+        fps: int,
+        clip_seconds: int = 5,
+    ) -> list:
+        """롤링 버퍼에서 감지 시점 전후 프레임 추출"""
+        if not clip_buffer:
+            return []
+
+        start_target = detection_frame_idx - (clip_seconds * fps)
+        end_target = detection_frame_idx + (clip_seconds * fps)
+
+        clip_frames = []
+        for frame_idx, frame in clip_buffer:
+            if start_target <= frame_idx <= end_target:
+                clip_frames.append(frame)
+
+        return clip_frames
+
+    def _infer_cctv_batch(
+        self,
+        frames: list,
+        fps: int,
+        width: int,
+        height: int,
+        store_code: str,
+        device_code: str,
+        gcs_bucket: str,
+        now: datetime,
+    ) -> dict[str, Any]:
+        """배치 방식 CCTV 추론"""
         events = []
         tasks = []
 
@@ -480,13 +648,13 @@ class InferenceEngine:
                     
                     if detected:
                         event = self._process_cctv_event(
-                                event_type=event_type,
-                                inference_result=result,
-                                now=now,
-                                store_code=store_code,
-                                device_code=device_code,
-                                gcs_bucket=GCS_BUCKET_CCTV,
-                            )
+                            event_type=event_type,
+                            inference_result=result,
+                            now=now,
+                            store_code=store_code,
+                            device_code=device_code,
+                            gcs_bucket=gcs_bucket,
+                        )
                         if event:
                             events.append(event)
                 except Exception as e:
@@ -934,6 +1102,106 @@ class InferenceEngine:
         cap.release()
 
         return frames, fps, width, height
+
+    def _get_video_info(self, path: str) -> tuple[int, int, int, int]:
+        """비디오 메타데이터 조회"""
+        cap = cv2.VideoCapture(path)
+        if not cap.isOpened():
+            return 30, 0, 0, 0
+
+        fps = int(cap.get(cv2.CAP_PROP_FPS)) or 30
+        width = int(cap.get(cv2.CAP_PROP_FRAME_WIDTH))
+        height = int(cap.get(cv2.CAP_PROP_FRAME_HEIGHT))
+        total_frames = int(cap.get(cv2.CAP_PROP_FRAME_COUNT))
+        cap.release()
+
+        return fps, width, height, total_frames
+
+    def _iter_video_chunks(self, path: str, chunk_size: int = 100):
+        """비디오를 청크 단위로 스트리밍하여 메모리 사용량 최소화"""
+        cap = cv2.VideoCapture(path)
+        if not cap.isOpened():
+            return
+
+        fps = int(cap.get(cv2.CAP_PROP_FPS)) or 30
+        width = int(cap.get(cv2.CAP_PROP_FRAME_WIDTH))
+        height = int(cap.get(cv2.CAP_PROP_FRAME_HEIGHT))
+
+        chunk = []
+        frame_idx = 0
+        while True:
+            ret, frame = cap.read()
+            if not ret:
+                if chunk:
+                    yield chunk, frame_idx - len(chunk), fps, width, height
+                break
+            chunk.append(frame)
+            frame_idx += 1
+            if len(chunk) >= chunk_size:
+                yield chunk, frame_idx - len(chunk), fps, width, height
+                chunk = []
+        cap.release()
+
+    def _encode_clip_sync(self, frames: list, fps: int, width: int, height: int, output_path: str) -> str:
+        """동기 방식 클립 인코딩 (FFmpeg H.264 변환)"""
+        temp_path = output_path.replace('.mp4', '_temp.mp4')
+        fourcc = cv2.VideoWriter_fourcc(*'mp4v')
+        out = cv2.VideoWriter(temp_path, fourcc, fps, (width, height))
+        for f in frames:
+            out.write(f)
+        out.release()
+
+        result = subprocess.run([
+            'ffmpeg', '-y', '-i', temp_path,
+            '-c:v', 'libx264', '-preset', 'fast', '-crf', '23',
+            output_path
+        ], capture_output=True, text=True)
+
+        if result.returncode != 0:
+            logging.error(f"ffmpeg 변환 실패: {result.stderr}")
+            if os.path.exists(temp_path):
+                os.rename(temp_path, output_path)
+        else:
+            if os.path.exists(temp_path):
+                os.remove(temp_path)
+
+        return output_path
+
+    def _encode_clip_background(self, frames: list, fps: int, width: int, height: int, output_path: str):
+        """비동기 방식 클립 인코딩"""
+        # 프레임 복사
+        frames_copy = [f.copy() for f in frames]
+
+        def _encode():
+            try:
+                return self._encode_clip_sync(frames_copy, fps, width, height, output_path)
+            except Exception as e:
+                logging.error(f"Background encoding failed: {e}")
+                return None
+
+        return _encoding_executor.submit(_encode)
+
+    def _upload_clip_background(self, local_path: str, bucket: str, blob_name: str):
+        """비동기 방식 GCS 업로드"""
+        def _upload():
+            try:
+                # 파일이 완전히 생성될 때까지 대기 (인코딩 완료 확인)
+                for _ in range(60):  # 최대 60초 대기
+                    if os.path.exists(local_path) and os.path.getsize(local_path) > 0:
+                        break
+                    import time
+                    time.sleep(1)
+
+                if not os.path.exists(local_path):
+                    logging.warning(f"GCS upload skipped - file not found: {local_path}")
+                    return None
+
+                return upload_to_gcs(local_path, bucket, blob_name)
+            except Exception as e:
+                logging.warning(f"GCS upload failed: {e}")
+                return None
+
+        return _upload_executor.submit(_upload)
 
     def _decode_b64_frames(self, frames_b64: list[str]) -> list[np.ndarray]:
         """Base64 프레임들을 디코딩"""
