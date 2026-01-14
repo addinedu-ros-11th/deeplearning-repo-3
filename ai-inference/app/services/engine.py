@@ -12,8 +12,19 @@ import numpy as np
 from PIL import Image
 
 from app.core.config import settings
+from app.core.constants import (
+    KNN_CONFIG, YOLO_CONFIG, EMBEDDING_CONFIG, CCTV_CONFIG,
+    VIDEO_ENCODING_CONFIG, API_TIMEOUT_CONFIG
+)
 from app.services.prototype_index import PrototypeIndex, load_index
 from app.services.central_client import CentralClient
+from app.services.video_processor import (
+    create_event_clip, encode_clip_sync, get_video_info,
+    decode_video, iter_video_chunks, ensure_dir
+)
+from app.services.event_detector import (
+    run_violence_inference, run_simple_inference
+)
 from app.util.gcs_utils import upload_to_gcs, download_to
 from dotenv import load_dotenv
 import cv2
@@ -44,8 +55,7 @@ cctv_logger = logging.getLogger("cctv")
 sys.modules['__main__'].FallDownDetection = FallDownDetectionWrapper
 sys.modules['__main__'].YOLOWrapper = YOLOWrapper
 
-def _ensure_dir(path: str) -> None:
-    os.makedirs(path, exist_ok=True)
+_ensure_dir = ensure_dir
 
 load_dotenv()
 
@@ -73,21 +83,18 @@ class InferenceEngine:
         # YOLO model (lazy/optional)
         self.yolo = None
 
-        # env 정책
-        self.knn_topk = _env_int("KNN_TOPK", 5)
-        self.unknown_dist_th = _env_float("UNKNOWN_DIST_TH", 0.5)
-        self.margin_th = _env_float("MARGIN_TH", 0.04)
+        self.knn_topk = _env_int("KNN_TOPK", KNN_CONFIG.TOP_K)
+        self.unknown_dist_th = _env_float("UNKNOWN_DIST_TH", KNN_CONFIG.UNKNOWN_DISTANCE_THRESHOLD)
+        self.margin_th = _env_float("MARGIN_TH", KNN_CONFIG.MARGIN_THRESHOLD)
 
-        self.yolo_imgsz = _env_int("YOLO_IMGSZ", 640)
-        self.yolo_conf = _env_float("YOLO_CONF", 0.25)
-        self.yolo_iou = _env_float("YOLO_IOU", 0.7)
+        self.yolo_imgsz = _env_int("YOLO_IMGSZ", YOLO_CONFIG.IMAGE_SIZE)
+        self.yolo_conf = _env_float("YOLO_CONF", YOLO_CONFIG.CONFIDENCE_THRESHOLD)
+        self.yolo_iou = _env_float("YOLO_IOU", YOLO_CONFIG.IOU_THRESHOLD)
         self.ai_device = os.getenv("AI_DEVICE", "cpu").strip() or "cpu"
 
         self.use_job_queue = os.getenv("AI_USE_JOB_QUEUE", "1").strip() == "1"
 
-        # ---- Embedding encoder (프로토타입 생성과 동일하게 맞춰야 함) ----
-        # prototype_index가 ResNet50(2048-d) 기반이면 아래 설정이 맞습니다.
-        self.emb_img_size = _env_int("EMB_IMG_SIZE", 224)
+        self.emb_img_size = _env_int("EMB_IMG_SIZE", EMBEDDING_CONFIG.IMAGE_SIZE)
         self.emb_device = os.getenv("EMB_DEVICE", self.ai_device).strip() or "cpu"
 
         self.encoder = None
@@ -101,14 +108,17 @@ class InferenceEngine:
             tf = transforms.Compose([
                 transforms.Resize((self.emb_img_size, self.emb_img_size)),
                 transforms.ToTensor(),
-                transforms.Normalize(mean=(0.485, 0.456, 0.406),
-                                     std=(0.229, 0.224, 0.225)),
+                transforms.Normalize(
+                    mean=EMBEDDING_CONFIG.NORMALIZE_MEAN,
+                    std=EMBEDDING_CONFIG.NORMALIZE_STD
+                ),
             ])
 
             self.encoder = m
             self.emb_tfm = tf
-        except Exception:
-            # encoder 로딩 실패하면 None 유지 (서버가 죽지 않도록)
+            scanner_logger.info("[scanner] ResNet50 encoder loaded successfully")
+        except Exception as e:
+            scanner_logger.warning(f"[scanner] ResNet50 encoder loading failed: {e}")
             self.encoder = None
             self.emb_tfm = None
 
@@ -510,8 +520,8 @@ class InferenceEngine:
         if total_frames == 0:
             return {"events": []}
 
-        # 롤링 버퍼: 클립 생성용 (최대 10초 분량)
-        buffer_size = fps * 10
+        # 롤링 버퍼: 클립 생성용 (최대 N초 분량)
+        buffer_size = fps * CCTV_CONFIG.ROLLING_BUFFER_SECONDS
         clip_buffer = deque(maxlen=buffer_size)
 
         # 감지 상태
@@ -526,7 +536,7 @@ class InferenceEngine:
         if self.violence_classifier:
             self.violence_classifier._reset()
 
-        frame_interval = 3  # 폭력 감지용 프레임 간격
+        frame_interval = CCTV_CONFIG.VIOLENCE_FRAME_INTERVAL
         probabilities = []
         global_frame_idx = 0
 
@@ -1039,15 +1049,15 @@ class InferenceEngine:
             cc = CentralClient()
             fn = getattr(cc, "get_active_prototype_set", None)
             if callable(fn):
-                data = fn(timeout_s=3.0)
+                data = fn(timeout_s=API_TIMEOUT_CONFIG.PROTOTYPE_FETCH_TIMEOUT_SECONDS)
                 npy_uri = str(data.get("index_npy_gcs_uri") or "").strip()
                 meta_uri = str(data.get("index_meta_gcs_uri") or "").strip()
                 psid = data.get("prototype_set_id")
                 psid = int(psid) if psid is not None and str(psid).isdigit() else None
                 if npy_uri and meta_uri:
                     return npy_uri, meta_uri, psid
-        except Exception:
-            pass
+        except Exception as e:
+            scanner_logger.debug(f"[scanner] Central API prototype fetch에 실패했습니다: {e}")
 
         # 2) fallback
         npy_uri = str(getattr(settings, "PROTOTYPE_INDEX_URI", "") or "").strip()
@@ -1280,7 +1290,7 @@ class InferenceEngine:
     ) -> None:
         """
         정책: infer 발생하면 항상 Central 업로드 시도.
-        단, Central 장애가 로컬 추론을 막으면 안 되므로 예외는 삼킴.
+        단, Central 장애가 로컬 추론을 막으면 안 되므로 예외는 로깅만 수행.
         """
         try:
             cc = CentralClient()
@@ -1294,10 +1304,10 @@ class InferenceEngine:
                     "decision": res.get("decision"),
                     "result_json": res.get("result_json", {}),
                 },
-                timeout_s=3.0,
+                timeout_s=API_TIMEOUT_CONFIG.DEFAULT_TIMEOUT_SECONDS,
             )
-        except Exception:
-            pass
+        except Exception as e:
+            scanner_logger.warning(f"[scanner] Central server과 통신이 실패했습니다: {e}")
 
     def _try_ingest_cctv_event(
         self,
@@ -1324,83 +1334,6 @@ class InferenceEngine:
             )
         except Exception as e:
             logging.warning(f"Central API CCTV 이벤트 저장 실패: {e}")
-
-    def _load_models(self) -> None:
-        # device
-        self.device = getattr(settings, "AI_DEVICE", "cpu")  # 없으면 cpu
-
-        # YOLO seg
-        yolo_path = getattr(settings, "YOLO_SEG_MODEL_PATH", None)
-        if not yolo_path:
-            raise ValueError("YOLO_SEG_MODEL_PATH is required for real inference")
-        self.yolo = YOLO(yolo_path)
-
-        # ResNet50 embedder
-        w = ResNet50_Weights.IMAGENET1K_V2
-        m = models.resnet50(weights=w)
-        m.fc = nn.Identity()
-        m.eval()
-        m.to(self.device)
-        self.embed_model = m
-
-        self.embed_tf = transforms.Compose([
-            transforms.Resize((224, 224)),
-            transforms.ToTensor(),
-            transforms.Normalize(mean=(0.485, 0.456, 0.406),
-                                std=(0.229, 0.224, 0.225)),
-        ])
-
-    def _l2norm(self, v: np.ndarray, eps: float = 1e-12) -> np.ndarray:
-        n = np.linalg.norm(v) + eps
-        return (v / n).astype(np.float32)
-
-    @torch.no_grad()
-    def _embed_rgb(self, crop_rgb: np.ndarray) -> np.ndarray:
-        # crop_rgb: (H,W,3) RGB
-        pil = Image.fromarray(crop_rgb).convert("RGB")
-        x = self.embed_tf(pil).unsqueeze(0).to(self.device)  # (1,3,224,224)
-        y = self.embed_model(x)  # (1,2048)
-        v = y.squeeze(0).detach().cpu().numpy().astype(np.float32)
-        return self._l2norm(v)
-
-    def _masked_crop_rgb(self, img_rgb: np.ndarray, mask: np.ndarray, box: np.ndarray) -> np.ndarray:
-        h, w = img_rgb.shape[:2]
-
-        x1, y1, x2, y2 = box.astype(int).tolist()
-        x1 = max(0, min(x1, w - 1))
-        y1 = max(0, min(y1, h - 1))
-        x2 = max(0, min(x2, w))
-        y2 = max(0, min(y2, h))
-        if x2 <= x1: x2 = min(w, x1 + 1)
-        if y2 <= y1: y2 = min(h, y1 + 1)
-
-        # mask shape 맞추기
-        if mask.shape[0] != h or mask.shape[1] != w:
-            mask = cv2.resize(mask.astype(np.uint8), (w, h), interpolation=cv2.INTER_NEAREST)
-
-        crop = img_rgb[y1:y2, x1:x2].copy()
-        m = mask[y1:y2, x1:x2]
-
-        if m.max() > 1:
-            m = (m > 127).astype(np.uint8)
-        else:
-            m = (m > 0).astype(np.uint8)
-
-        bg = np.full_like(crop, 255, dtype=np.uint8)
-        m3 = np.repeat(m[:, :, None], 3, axis=2)
-        out = np.where(m3 == 1, crop, bg)
-        return out
-    
-    def _gate(self, d1: float, d2: float) -> tuple[str, float]:
-        unknown_th = float(getattr(settings, "UNKNOWN_DIST_TH", 0.35))
-        margin_th = float(getattr(settings, "MARGIN_TH", 0.03))
-        margin = float(d2 - d1)
-
-        if d1 > unknown_th:
-            return "UNKNOWN", margin
-        if margin < margin_th:
-            return "REVIEW", margin
-        return "AUTO", margin
 
     # -----------------------------
     # Overlap (IoU) calculation
