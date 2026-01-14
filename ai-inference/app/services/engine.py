@@ -186,11 +186,15 @@ class InferenceEngine:
 
     def startup_load(self) -> None:
         if self.mock:
+            scanner_logger.info("[scanner] MOCK 모드 - 모델 로드 스킵")
             return
-        
+
         # 1) prototype_set 기반 통합 인덱스 로드
         try:
+            scanner_logger.info("[scanner] prototype_index 로드 시작...")
             npy_uri, meta_uri, psid = self._resolve_active_prototype_index_uris()
+            scanner_logger.info(f"[scanner] prototype URIs - npy: {npy_uri}, meta: {meta_uri}, psid: {psid}")
+
             if npy_uri and meta_uri:
                 cache_dir = os.path.join(getattr(settings, "CACHE_DIR", "/tmp"), "prototype_index")
                 _ensure_dir(cache_dir)
@@ -200,10 +204,13 @@ class InferenceEngine:
 
                 self.prototype_index = load_index(npy_local, meta_local)
                 self.prototype_set_id = psid
+                scanner_logger.info(f"[scanner] prototype_index 로드 성공: psid={psid}, vectors={self.prototype_index.vectors.shape if self.prototype_index else 'None'}")
             else:
+                scanner_logger.warning("[scanner] prototype_index 로드 실패: npy_uri 또는 meta_uri가 없음")
                 self.prototype_index = None
                 self.prototype_set_id = None
-        except Exception:
+        except Exception as e:
+            scanner_logger.error(f"[scanner] prototype_index 로드 실패: {e}")
             self.prototype_index = None
             self.prototype_set_id = None
 
@@ -259,6 +266,11 @@ class InferenceEngine:
         device_code = str(payload.get("device_code") or "").strip()
         attempt_no = int(payload.get("attempt_no") or 1)
 
+        scanner_logger.info(
+            "[scanner] 추론 요청 수신: session=%s, store=%s, device=%s, attempt=%d",
+            session_uuid, store_code, device_code, attempt_no,
+        )
+
         if not session_uuid or not store_code or not device_code:
             raise ValueError("session_uuid/store_code/device_code are required")
 
@@ -303,6 +315,10 @@ class InferenceEngine:
 
         # 4) prototype index 없으면 UNKNOWN
         if not self.prototype_index:
+            scanner_logger.warning(
+                "[scanner] 추론 실패: prototype_index가 로드되지 않음 (session=%s)",
+                session_uuid,
+            )
             res = {
                 "overlap_score": None,
                 "decision": "UNKNOWN",
@@ -355,11 +371,9 @@ class InferenceEngine:
         else:
             decision = "AUTO"
 
-        # items 집계(UNKNOWN 제외)
+        # items 집계 (UNKNOWN 포함)
         item_map = {}
         for it in instances:
-            if it["state"] == "UNKNOWN":
-                continue
             iid = int(it["best_item_id"])
             item_map[iid] = item_map.get(iid, 0) + int(it.get("qty", 1))
         items = [{"item_id": k, "qty": v} for k, v in item_map.items()]
@@ -370,7 +384,7 @@ class InferenceEngine:
 
         h, w = int(img.shape[0]), int(img.shape[1])
         res = {
-            "overlap_score": 0.0,
+            "overlap_score": overlap_score,
             "decision": decision,
             "result_json": {
                 "mode": "real",
@@ -379,6 +393,7 @@ class InferenceEngine:
                 "input": {"shape": [h, w, int(img.shape[2])]},
                 "instances": instances,
                 "items": items,
+                "overlap_score": overlap_score,
             },
         }
 
@@ -390,6 +405,24 @@ class InferenceEngine:
                 decision,
                 len(instances),
                 len(items),
+            )
+            # 상세 추론 결과 로깅
+            for inst in instances:
+                scanner_logger.info(
+                    "[scanner] 추론 결과: instance_id=%d, item_id=%d, label=%s, confidence=%.3f, distance=%.4f, margin=%.4f, state=%s",
+                    inst["instance_id"],
+                    inst["best_item_id"],
+                    inst["label_text"],
+                    inst["confidence"],
+                    inst["match_distance"],
+                    inst["match_margin"],
+                    inst["state"],
+                )
+            # 최종 아이템 집계 로깅
+            scanner_logger.info(
+                "[scanner] 최종 집계: session=%s, items=%s",
+                session_uuid,
+                items,
             )
         elif decision == "UNKNOWN":
             scanner_logger.warning(
