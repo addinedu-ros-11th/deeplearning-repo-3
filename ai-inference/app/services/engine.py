@@ -364,6 +364,10 @@ class InferenceEngine:
             item_map[iid] = item_map.get(iid, 0) + int(it.get("qty", 1))
         items = [{"item_id": k, "qty": v} for k, v in item_map.items()]
 
+        # 겹침 점수 계산
+        overlap_score = self._calculate_overlap_score(instances)
+        scanner_logger.info(f"[scanner] 겹침 점수: {overlap_score:.4f}")
+
         h, w = int(img.shape[0]), int(img.shape[1])
         res = {
             "overlap_score": 0.0,
@@ -1364,6 +1368,49 @@ class InferenceEngine:
         if margin < margin_th:
             return "REVIEW", margin
         return "AUTO", margin
+
+    # -----------------------------
+    # Overlap (IoU) calculation
+    # -----------------------------
+    @staticmethod
+    def _compute_iou(box1: list, box2: list) -> float:
+        """
+        두 bounding box의 IoU(Intersection over Union) 계산
+        box format: [x1, y1, x2, y2]
+        """
+        x1_inter = max(box1[0], box2[0])
+        y1_inter = max(box1[1], box2[1])
+        x2_inter = min(box1[2], box2[2])
+        y2_inter = min(box1[3], box2[3])
+
+        inter_width = max(0, x2_inter - x1_inter)
+        inter_height = max(0, y2_inter - y1_inter)
+        inter_area = inter_width * inter_height
+
+        area1 = (box1[2] - box1[0]) * (box1[3] - box1[1])
+        area2 = (box2[2] - box2[0]) * (box2[3] - box2[1])
+        union_area = area1 + area2 - inter_area
+
+        if union_area <= 0:
+            return 0.0
+        return inter_area / union_area
+
+    def _calculate_overlap_score(self, instances: list[dict]) -> float:
+        """모든 인스턴스 쌍의 IoU 중 최대값을 반환"""
+        if len(instances) < 2:
+            return 0.0
+
+        boxes = [inst["bbox"] for inst in instances if "bbox" in inst]
+        if len(boxes) < 2:
+            return 0.0
+
+        max_iou = 0.0
+        for i in range(len(boxes)):
+            for j in range(i + 1, len(boxes)):
+                iou = self._compute_iou(boxes[i], boxes[j])
+                max_iou = max(max_iou, iou)
+
+        return max_iou
 
     # -----------------------------
     # YOLO seg -> crop -> embedding -> kNN -> gating
