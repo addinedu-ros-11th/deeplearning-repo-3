@@ -243,6 +243,32 @@ class CheckScreen(QWidget):
             elif item.layout():
                 self._clear_layout(item.layout())
 
+    def hideEvent(self, event):
+        """화면이 숨겨질 때 스레드 정리"""
+        super().hideEvent(event)
+        self.stop_workers()
+
+    def stop_workers(self):
+        """실행 중인 Worker 스레드 정리"""
+        self._cleanup_worker('admin_call_worker')
+
+    def _cleanup_worker(self, worker_name: str):
+        """단일 Worker 스레드를 안전하게 정리"""
+        if hasattr(self, worker_name):
+            worker = getattr(self, worker_name)
+            if worker is not None:
+                try:
+                    worker.blockSignals(True)
+                    if worker.isRunning():
+                        worker.quit()
+                        if not worker.wait(2000):
+                            worker.terminate()
+                            worker.wait(1000)
+                    worker.deleteLater()
+                except RuntimeError:
+                    pass
+            setattr(self, worker_name, None)
+
     def call_admin(self):
         """관리자 호출 - 서버에 리뷰 생성 요청"""
         session_id = self.data.get_session_id()
@@ -255,6 +281,7 @@ class CheckScreen(QWidget):
             "reason": "ADMIN_CALL"
         }
 
+        self._cleanup_worker('admin_call_worker')
         self.admin_call_worker = APIWorker(
             api_url="/api/v1/reviews",
             method="POST",

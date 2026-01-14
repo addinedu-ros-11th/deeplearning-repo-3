@@ -3,6 +3,7 @@ from PyQt6.QtGui import QPixmap
 from PyQt6.QtCore import Qt, QTimer, QPropertyAnimation, QEasingCurve, QAbstractAnimation
 from PyQt6.QtWidgets import QGraphicsOpacityEffect
 from popup.payment_popup import PaymentTimeoutPopup, PaymentCompletePopup
+from popup.error_popup import ErrorPopup
 from time import time
 from datetime import datetime
 from thread.order_save_worker import OrderSaveWorker
@@ -99,6 +100,32 @@ class PaymentScreen(QWidget):
 
         logging.info("[PaymentScreen] 결제 화면 초기화 완료")
 
+    def hideEvent(self, event):
+        """화면이 숨겨질 때 스레드 정리"""
+        super().hideEvent(event)
+        self.stop_workers()
+
+    def stop_workers(self):
+        """실행 중인 Worker 스레드 정리"""
+        self._cleanup_worker('order_worker')
+
+    def _cleanup_worker(self, worker_name: str):
+        """단일 Worker 스레드를 안전하게 정리"""
+        if hasattr(self, worker_name):
+            worker = getattr(self, worker_name)
+            if worker is not None:
+                try:
+                    worker.blockSignals(True)
+                    if worker.isRunning():
+                        worker.quit()
+                        if not worker.wait(2000):
+                            worker.terminate()
+                            worker.wait(1000)
+                    worker.deleteLater()
+                except RuntimeError:
+                    pass
+            setattr(self, worker_name, None)
+
     def start_timeout_timer(self):
         """5초 후 타임아웃 체크"""
         self.timeout_timer = QTimer()
@@ -116,8 +143,9 @@ class PaymentScreen(QWidget):
         else:
             if self.is_payed == "NO_MONEY":
                 payment_fail_popup = PaymentTimeoutPopup("잔액이 부족합니다.")
-            
             elif self.is_payed == "NOT_CONNECTED_CARD":
+                payment_fail_popup = PaymentTimeoutPopup("미등록 카드입니다.")
+            else:
                 payment_fail_popup = PaymentTimeoutPopup("결제 시간이 초과됐습니다.")
 
             payment_fail_popup.exec()
@@ -166,6 +194,7 @@ class PaymentScreen(QWidget):
         }
 
         logging.info(f"[TEST] 주문 데이터: {order_data}")
+        self._cleanup_worker('order_worker')
         self.order_worker = OrderSaveWorker(
             api_url="/api/v1/orders/save",
             order_data=order_data
