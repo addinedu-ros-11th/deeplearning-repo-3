@@ -1,0 +1,7 @@
+"""
+추론 엔진 패키지.
+트레이 및 CCTV 추론 기능을 제공합니다.
+"""
+from app.services.inference.facade import InferenceEngine
+
+__all__ = ["InferenceEngine"]
