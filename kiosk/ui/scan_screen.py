@@ -6,15 +6,17 @@ from thread.server_worker import APIWorker
 from thread.infer_worker import InferWorker
 from popup.error_popup import ErrorPopup
 from popup.overlap_popup import OverlapPopup
+from popup.review_popup import ReviewPopup
 import logging
 import uuid
 import cv2
 import os
+import numpy as np
 
 class ScanScreen(QWidget):
     def __init__(self, switch_callback, data, store_id, device_id):
         super().__init__()
-        self.test_image_path = "./data/tray_test.png"
+        self.test_image_path = "./data/tray_test_10.mov"
         self.switch_callback = switch_callback
         self.data = data
         self.selected_items = []
@@ -29,13 +31,14 @@ class ScanScreen(QWidget):
         self.camera_timer = None
         self.current_frame = None  # 현재 프레임 저장
 
-        # 트레이 감지용 변수 (ROI 밝기 기반)
+        # 트레이 감지용 변수 (HSV 색상 기반)
         self.tray_detected = False  # 트레이 감지 상태
-        self.stable_count = 0  # 안정화 카운트
-        self.STABLE_THRESHOLD = 10  # 안정화 판단 프레임 수 (~0.3초)
-        self.BRIGHTNESS_THRESHOLD = 100  # 트레이 감지 밝기 임계값 (0-255)
+        self.stable_count = 5
+        self.STABLE_THRESHOLD = 50
         self.ROI_RATIO = (0.3, 0.3, 0.7, 0.7)  # ROI 영역 비율 (x1, y1, x2, y2)
-        self.OVERLAP_THRESHOLD = 0.1 # 0.0 ~ 1.0
+        self.OVERLAP_THRESHOLD = 0.05 # 0.0 ~ 1.0
+        self.capture_delay_timer = None
+        self.TRAY_BRIGHTNESS_THRESHOLD = 170
 
         # 메뉴 조회 대기 목록
         self.pending_items = []
@@ -61,12 +64,14 @@ class ScanScreen(QWidget):
         # 트레이 감지 상태 초기화
         self.tray_detected = False
         self.stable_count = 0
+        self.capture_delay_timer = None
 
         # 장바구니 데이터 초기화
         self.data.items = []
 
         # UI 업데이트
         self.update_item_list()
+        self.pay_btn.setEnabled(False)
 
         # 새 세션 생성 (세션 생성 완료 후 카메라 시작됨)
         self.create_session()
@@ -86,8 +91,9 @@ class ScanScreen(QWidget):
         }
 
         logging.info("[세션생성] 세션 생성 요청 시작")
-        
-        # APIWorker로 비동기 요청
+
+        # 기존 worker 정리 후 새 APIWorker 생성
+        self._cleanup_worker('session_worker')
         self.session_worker = APIWorker(
             api_url="/api/v1/sessions/create",
             method="POST",
@@ -310,6 +316,7 @@ class ScanScreen(QWidget):
 
     def fetch_menu_item(self, item_name: str):
         """서버에서 메뉴 아이템 정보 조회"""
+        self._cleanup_worker('menu_worker')
         self.menu_worker = APIWorker(
             api_url=f"/api/v1/menu-items/{item_name}",
             method="GET"
@@ -388,8 +395,7 @@ class ScanScreen(QWidget):
         if self.cap is not None:
             return  # 이미 실행 중
 
-        """ for test
-        self.cap = cv2.VideoCapture(0)
+        #self.cap = cv2.VideoCapture(0)
         self.cap = cv2.VideoCapture(self.test_image_path)
         if not self.cap.isOpened():
             logging.error("[웹캠] 카메라를 열 수 없습니다")
@@ -403,7 +409,6 @@ class ScanScreen(QWidget):
         self.camera_timer.start(33)  # ~30fps
 
         """
-
         # 테스트 이미지 로드
         self.current_frame = cv2.imread(self.test_image_path)
         if self.current_frame is None:
@@ -417,12 +422,15 @@ class ScanScreen(QWidget):
 
         # 바로 AI 추론 시작
         self.start_inference()
+        """
 
     def stop_camera(self):
         """웹캠 중지"""
         if self.camera_timer:
             self.camera_timer.stop()
             self.camera_timer = None
+
+        self.cancel_scheduled_capture()
 
         if self.cap:
             self.cap.release()
@@ -466,25 +474,28 @@ class ScanScreen(QWidget):
         from PIL import Image, ImageDraw, ImageFont
         import numpy as np
 
-        # 색상 정의 (BGR for OpenCV, RGB for PIL)
+        # 색상 정의 (RGB with alpha)
         COLORS = {
-            "AUTO": {"bgr": (0, 255, 0), "rgb": (0, 255, 0)},
-            "REVIEW": {"bgr": (0, 165, 255), "rgb": (255, 165, 0)},
-            "UNKNOWN": {"bgr": (0, 0, 255), "rgb": (255, 0, 0)},
+            "AUTO": (0, 255, 0),      # 초록
+            "REVIEW": (255, 165, 0),  # 주황
+            "UNKNOWN": (255, 0, 0),   # 빨강
         }
 
         # 한글 폰트 로드 (시스템 폰트 사용)
         font_path = "/usr/share/fonts/truetype/nanum/NanumGothicBold.ttf"
         try:
-            font = ImageFont.truetype(font_path, 36)
+            font = ImageFont.truetype(font_path, 24)
         except:
             # 폰트가 없으면 기본 폰트 사용 (한글 깨질 수 있음)
             font = ImageFont.load_default()
 
         # OpenCV 이미지 -> PIL 이미지 변환
         frame_rgb = cv2.cvtColor(frame, cv2.COLOR_BGR2RGB)
-        pil_image = Image.fromarray(frame_rgb)
-        draw = ImageDraw.Draw(pil_image)
+        pil_image = Image.fromarray(frame_rgb).convert("RGBA")
+
+        # 반투명 오버레이용 레이어
+        overlay = Image.new("RGBA", pil_image.size, (0, 0, 0, 0))
+        draw = ImageDraw.Draw(overlay)
 
         for det in self.detection_results:
             bbox = det.get("bbox")
@@ -496,17 +507,21 @@ class ScanScreen(QWidget):
             item_id = det.get("best_item_id")
             confidence = det.get("confidence", 0)
 
-            # 한글 이름 사용 (central-api에서 label_text에 한글 이름 포함)
-            label = det.get("label_text", f"item-{item_id}")
+            # UNKNOWN이면 "알 수 없음" 표시
+            if state == "UNKNOWN":
+                label = "알 수 없음"
+            else:
+                label = det.get("label_text", f"item-{item_id}")
 
             # 색상 선택
-            color_set = COLORS.get(state, COLORS["UNKNOWN"])
+            rgb = COLORS.get(state, COLORS["UNKNOWN"])
+            color_with_alpha = rgb + (128,)
 
-            # 바운딩 박스 그리기 (PIL)
-            draw.rectangle([x1, y1, x2, y2], outline=color_set["rgb"], width=3)
+            # 바운딩 박스 그리기
+            draw.rectangle([x1, y1, x2, y2], outline=color_with_alpha, width=3)
 
             # 라벨 텍스트 준비
-            label_text = f"{label} ({confidence:.0%})"
+            label_text = f"{label}"
 
             # 텍스트 크기 계산
             text_bbox = draw.textbbox((0, 0), label_text, font=font)
@@ -517,19 +532,22 @@ class ScanScreen(QWidget):
             label_y = max(0, y1 - text_h - 8)
             draw.rectangle(
                 [x1, label_y, x1 + text_w + 8, y1],
-                fill=color_set["rgb"]
+                fill=color_with_alpha
             )
 
             # 라벨 텍스트 그리기 (흰색)
-            draw.text((x1 + 4, label_y + 2), label_text, font=font, fill=(255, 255, 255))
+            draw.text((x1 + 4, label_y + 2), label_text, font=font, fill=(255, 255, 255, 255))
+
+        # 오버레이 합성
+        pil_image = Image.alpha_composite(pil_image, overlay)
 
         # PIL 이미지 -> OpenCV 이미지 변환
-        frame = cv2.cvtColor(np.array(pil_image), cv2.COLOR_RGB2BGR)
+        frame = cv2.cvtColor(np.array(pil_image.convert("RGB")), cv2.COLOR_RGB2BGR)
 
         return frame
 
     def detect_tray(self, frame):
-        """ROI 영역의 밝기 변화로 트레이 감지 (검은색 -> 흰색)"""
+        """ROI 영역의 최대 밝기로 트레이 감지"""
         if self.is_inferring:
             return  # 추론 중이면 감지 안함
 
@@ -542,31 +560,61 @@ class ScanScreen(QWidget):
         # ROI 영역 추출
         roi = frame[y1:y2, x1:x2]
 
-        # 그레이스케일 변환 후 평균 밝기 계산
+        # 그레이스케일 변환 후 최대 밝기 계산
         gray_roi = cv2.cvtColor(roi, cv2.COLOR_BGR2GRAY)
-        avg_brightness = gray_roi.mean()
+        max_brightness = gray_roi.max()
 
-        # 트레이 감지 (밝기가 임계값 이상이면 트레이 있음)
-        is_bright = avg_brightness >= self.BRIGHTNESS_THRESHOLD
+        # 트레이 감지 (최대 밝기가 임계값 이상이면 트레이 있음)
+        is_tray_detected = max_brightness >= self.TRAY_BRIGHTNESS_THRESHOLD
 
-        if is_bright:
+        if is_tray_detected:
             if not self.tray_detected:
                 # 트레이가 새로 감지됨
                 self.tray_detected = True
                 self.stable_count = 0
-                logging.info(f"[트레이감지] 트레이 감지됨 (밝기: {avg_brightness:.1f})")
+                logging.info(f"[트레이감지] 트레이 감지됨 (최대 밝기: {max_brightness})")
             else:
                 # 트레이가 계속 있음 - 안정화 카운트 증가
                 self.stable_count += 1
                 if self.stable_count == self.STABLE_THRESHOLD:
-                    logging.info("[트레이감지] 트레이 안정화 - AI 추론 시작")
-                    self.start_inference()
+                    logging.info("[트레이감지] 트레이 안정화 - 1초 후 캡처 예약")
+                    self.schedule_capture()
         else:
-            # 트레이 없음 (어두움)
+            # 트레이 없음
             if self.tray_detected:
-                logging.info(f"[트레이감지] 트레이 제거됨 (밝기: {avg_brightness:.1f})")
+                logging.info(f"[트레이감지] 트레이 제거됨 (최대 밝기: {max_brightness})")
+                self.cancel_scheduled_capture()
             self.tray_detected = False
             self.stable_count = 0
+
+    def schedule_capture(self):
+        """2초 후 캡처 예약"""
+        if self.capture_delay_timer is not None:
+            return  # 이미 예약됨
+
+        self.capture_delay_timer = QTimer()
+        self.capture_delay_timer.setSingleShot(True)
+        self.capture_delay_timer.timeout.connect(self.capture_and_infer)
+        self.capture_delay_timer.start(2000)
+        logging.info("[트레이감지] 2초 후 캡처 타이머 시작")
+
+    def cancel_scheduled_capture(self):
+        """예약된 캡처 취소"""
+        if self.capture_delay_timer is not None:
+            self.capture_delay_timer.stop()
+            self.capture_delay_timer = None
+            logging.info("[트레이감지] 캡처 타이머 취소됨")
+
+    def capture_and_infer(self):
+        """2초 후 현재 프레임 캡처 및 AI 추론 시작"""
+        self.capture_delay_timer = None
+
+        if not self.tray_detected:
+            logging.warning("[트레이감지] 트레이가 제거되어 캡처 취소")
+            return
+
+        logging.info("[트레이감지] 2초 대기 완료 - AI 추론 시작")
+        self.start_inference()
 
     def hideEvent(self, event):
         """화면이 숨겨질 때 웹캠 및 스레드 중지"""
@@ -584,12 +632,24 @@ class ScanScreen(QWidget):
         ]
 
         for worker_name in workers:
-            if hasattr(self, worker_name):
-                worker = getattr(self, worker_name)
-                if worker is not None and worker.isRunning():
-                    worker.quit()
-                    worker.wait(2000)
-                setattr(self, worker_name, None)
+            self._cleanup_worker(worker_name)
+
+    def _cleanup_worker(self, worker_name: str):
+        """단일 Worker 스레드를 안전하게 정리"""
+        if hasattr(self, worker_name):
+            worker = getattr(self, worker_name)
+            if worker is not None:
+                try:
+                    worker.blockSignals(True)
+                    if worker.isRunning():
+                        worker.quit()
+                        if not worker.wait(2000):
+                            worker.terminate()
+                            worker.wait(1000)
+                    worker.deleteLater()
+                except RuntimeError:
+                    pass
+            setattr(self, worker_name, None)
 
     def call_admin(self):
         """관리자 호출 - 서버에 리뷰 생성 요청"""
@@ -603,6 +663,7 @@ class ScanScreen(QWidget):
             "reason": "ADMIN_CALL"
         }
 
+        self._cleanup_worker('admin_call_worker')
         self.admin_call_worker = APIWorker(
             api_url="/api/v1/reviews",
             method="POST",
@@ -626,6 +687,7 @@ class ScanScreen(QWidget):
             "reason": "ADMIN_CALL"
         }
 
+        self._cleanup_worker('admin_call_worker')
         self.admin_call_worker = APIWorker(
             api_url="/api/v1/reviews",
             method="POST",
@@ -688,17 +750,12 @@ class ScanScreen(QWidget):
         self.empty_label.show()
         logging.info("[AI추론] AI 추론 시작")
 
-        # 테스트: 웹캠 대신 테스트 이미지 사용
-        if os.path.exists(self.test_image_path):
-            with open(self.test_image_path, "rb") as f:
-                frame_bytes = f.read()
-            logging.info(f"[AI추론] 테스트 이미지 사용: {self.test_image_path}")
-        else:
-            # 프레임을 JPEG로 인코딩
-            _, buffer = cv2.imencode('.jpg', self.current_frame)
-            frame_bytes = buffer.tobytes()
+        # 현재 프레임을 JPEG로 인코딩
+        _, buffer = cv2.imencode('.jpg', self.current_frame)
+        frame_bytes = buffer.tobytes()
 
         # AI 추론 Worker 실행
+        self._cleanup_worker('infer_worker')
         self.infer_worker = InferWorker(
             session_uuid=self.session_uuid,
             frame_bytes=frame_bytes,
@@ -713,8 +770,8 @@ class ScanScreen(QWidget):
         """AI 추론 성공"""
         self.is_inferring = False
         decision = result.get("decision", "UNKNOWN")
-        overlap_score = result.get("overlap_score")
         result_json = result.get("result_json", {})
+        overlap_score = result.get("overlap_score") or result_json.get("overlap_score")
 
         logging.info(f"[AI추론] 결과: decision={decision}, overlap_score={overlap_score}, result_json={result_json}")
 
@@ -723,30 +780,36 @@ class ScanScreen(QWidget):
             self.show_overlap_popup()
             return
 
-        if decision == "AUTO" or decision == "REVIEW":
-            # Detection 결과 저장 (bbox 오버레이용)
-            self.detection_results = result_json.get("instances", [])
-            logging.info(f"[AI추론] Detection 결과 저장: {len(self.detection_results)}개 인스턴스")
+        self.detection_results = result_json.get("instances", [])
+        logging.info(f"[AI추론] Detection 결과 저장: {len(self.detection_results)}개 인스턴스")
 
-            # 화면에 detection 결과 표시
-            if self.current_frame is not None:
-                self.display_frame(self.current_frame)
+        if self.current_frame is not None:
+            self.display_frame(self.current_frame)
 
-            # 인식된 아이템을 장바구니에 추가 + 결제 버튼 활성화
-            self.process_inference_result(result_json)
+        self.process_inference_result(result_json)
+
+        state = 0
+        for inst in self.detection_results:
+            if inst.get("state") == "REVIEW" and state != 2:
+                state = 1
+            if inst.get("state") == "UNKNOWN":
+                state = 2
+        if state == 0:
             self.pay_btn.setEnabled(True)
-            
-        else:
-            logging.warning(f"[AI추론] 알 수 없는 결과: {decision}")
+        elif state == 1:
+            logging.warning(f"[AI추론] REVIEW 아이템 감지 - 확인 팝업 표시")
+            self.show_review_popup()
+            state = 0
+            self.pay_btn.setEnabled(True)
+        elif state == 2:
+            logging.warning(f"[AI추론] UNKNOWN 아이템 감지 - 관리자 호출")
             self.call_admin_auto()
-            self.detection_results = []
-            if self.current_frame is not None:
-                self.display_frame(self.current_frame)
-            
-            self.pay_btn.setEnabled(False)
 
     def display_frame(self, frame):
         """프레임을 화면에 표시"""
+        if frame is None:
+            return
+
         # Detection 결과가 있으면 bbox 오버레이
         display_frame = frame.copy()
         if self.detection_results:
@@ -773,9 +836,32 @@ class ScanScreen(QWidget):
         popup = OverlapPopup(self)
         popup.exec()
 
-        # 팝업 닫힌 후 트레이 감지 상태 초기화 (재스캔 유도)
+        self.selected_items = []
+        self.is_inferring = False
+        self.current_frame = None
+        self.pending_items = []
+        self.detection_results = []
         self.tray_detected = False
         self.stable_count = 0
+
+        if self.capture_delay_timer is not None:
+            self.capture_delay_timer.stop()
+            self.capture_delay_timer = None
+
+        self.data.items = []
+        self.update_item_list()
+        self.pay_btn.setEnabled(False)
+
+        self.stop_camera()
+        self.start_camera()
+
+        logging.info("[겹침팝업] 카메라 상태 초기화 완료 (세션 유지)")
+
+    def show_review_popup(self):
+        """모호한 상품 확인 팝업 표시"""
+        popup = ReviewPopup(self)
+        popup.exec()
+        logging.info("[리뷰팝업] 확인 완료 - 결제 진행 가능")
 
     def on_inference_error(self, error_msg):
         """AI 추론 실패"""
@@ -815,6 +901,7 @@ class ScanScreen(QWidget):
         qty = item["qty"]
 
         # 서버에서 메뉴 정보 조회
+        self._cleanup_worker('menu_worker')
         self.menu_worker = APIWorker(
             api_url=f"/api/v1/menu-items/by-id/{item_id}",
             method="GET"
