@@ -1,6 +1,7 @@
 import cv2
 import logging
 import os
+import threading
 from collections import deque
 from datetime import datetime
 
@@ -43,18 +44,28 @@ class FallDownDetection:
         self.FALL_FRAME_THRESHOLD = 2
         self.ASPECT_RATIO_TH = 1.0
 
+        # Thread safety lock
+        self._lock = threading.Lock()
+
+    def _reset(self):
+        """버퍼 초기화 (thread-safe)"""
+        with self._lock:
+            self.frame_buffer.clear()
+            self.fall_counter.clear()
+            self.last_clip_path = None
+
     def process_frame(self, frame):
         """
-        프레임 처리 및 낙상 여부 판정
+        프레임 처리 및 낙상 여부 판정 (thread-safe)
         """
         result = {
             "is_fall": False,
+            "confidence": 0.0,
             "clip_path": None
         }
 
         try:
-            self.frame_buffer.append(frame)
-
+            # YOLO 추론 (lock 외부에서 수행 - GPU 작업)
             results = self.model.predict(
                 frame,
                 imgsz=640,
@@ -62,12 +73,16 @@ class FallDownDetection:
                 verbose=False
             )
 
-            is_fall = self._detect_fall(results)
+            with self._lock:
+                self.frame_buffer.append(frame)
+                is_fall, confidence = self._detect_fall(results)
 
-            if is_fall:
-                self.logger.info("낙상 감지됨")
+                if is_fall:
+                    self.logger.info(f"낙상 감지됨 (conf={confidence:.2f})")
 
-            result["is_fall"] = is_fall
+                result["is_fall"] = is_fall
+                result["confidence"] = confidence
+
             return result
 
         except Exception as e:
@@ -78,6 +93,8 @@ class FallDownDetection:
         """
         Skeleton rule 기반 낙상 판단
         """
+        max_confidence = 0.0
+
         for result in results:
             if result.boxes is None or result.keypoints is None:
                 continue
@@ -85,6 +102,7 @@ class FallDownDetection:
             for i in range(len(result.boxes)):
                 x1, y1, x2, y2 = map(int, result.boxes.xyxy[i])
                 kpts = result.keypoints.xy[i]
+                conf = float(result.boxes.conf[i])  # YOLO detection confidence
 
                 head_y = kpts[0][1]
                 hip_y = (kpts[11][1] + kpts[12][1]) / 2
@@ -98,13 +116,15 @@ class FallDownDetection:
 
                 if rule_fall:
                     self.fall_counter[pid] = self.fall_counter.get(pid, 0) + 1
+                    if conf > max_confidence:
+                        max_confidence = conf
                 else:
                     self.fall_counter[pid] = 0
 
                 if self.fall_counter[pid] >= self.FALL_FRAME_THRESHOLD:
-                    return True
+                    return True, max_confidence
 
-        return False
+        return False, 0.0
 
     def _save_clip(self):
         """
@@ -122,7 +142,7 @@ class FallDownDetection:
         h, w, _ = self.frame_buffer[0].shape
         out = cv2.VideoWriter(
             clip_path,
-            cv2.VideoWriter_fourcc(*"mp4v"),
+            cv2.VideoWriter_fourcc(*"avc1"),
             self.fps,
             (w, h)
         )

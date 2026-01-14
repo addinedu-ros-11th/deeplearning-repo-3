@@ -1,11 +1,21 @@
 from __future__ import annotations
 
+import os
 from datetime import timedelta
 from google.cloud import storage
 
+from app.core.config import settings
+
+def _get_storage_client() -> storage.Client:
+    """서비스 계정 키가 있으면 사용, 없으면 기본 자격증명"""
+    key_path = settings.GOOGLE_APPLICATION_CREDENTIALS
+    if key_path and os.path.exists(key_path):
+        return storage.Client.from_service_account_json(key_path)
+    return storage.Client()
+
 def upload_bytes(bucket_name: str, object_name: str, data: bytes, content_type: str) -> str:
     """바이트 데이터를 GCS에 업로드하고 gs:// URI 반환"""
-    client = storage.Client()
+    client = _get_storage_client()
     bucket = client.bucket(bucket_name)
     blob = bucket.blob(object_name)
     blob.upload_from_string(data, content_type=content_type)
@@ -26,7 +36,7 @@ def generate_signed_url(gcs_uri: str, expiration_minutes: int = 60) -> str:
     bucket_name, object_name = parts
 
     try:
-        client = storage.Client()
+        client = _get_storage_client()
         bucket = client.bucket(bucket_name)
         blob = bucket.blob(object_name)
 

@@ -4,7 +4,7 @@ import os
 import time  # 쿨타임 계산을 위해 추가
 from collections import deque
 from datetime import datetime
-
+import subprocess
 from ultralytics import YOLO
 from app.util.gcs_utils import load_latest_model
 
@@ -55,6 +55,7 @@ class AuxiliaryTools:
         """
         result = {
             "detected": False,
+            "confidence": 0.0,
             "num_objects": 0,
             "clip_path": None
         }
@@ -124,7 +125,7 @@ class AuxiliaryTools:
         h, w, _ = self.frame_buffer[0].shape
         out = cv2.VideoWriter(
             clip_path,
-            cv2.VideoWriter_fourcc(*"mp4v"),
+            cv2.VideoWriter_fourcc(*"avc1"),
             self.fps,
             (w, h)
         )

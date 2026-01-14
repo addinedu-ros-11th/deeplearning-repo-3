@@ -18,6 +18,8 @@ class Settings(BaseSettings):
     GCS_BUCKET_CCTV: str | None = None
     GCS_BUCKET_MODELS: str | None = None
 
+    GOOGLE_APPLICATION_CREDENTIALS: str | None = None
+
     # Demo convenience
     CREATE_TABLES: int = 0  # 1이면 startup에서 create_all
 
