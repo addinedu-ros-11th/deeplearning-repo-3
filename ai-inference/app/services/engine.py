@@ -8,9 +8,9 @@ from typing import Any
 from dotenv import load_dotenv
 
 from app.core.config import settings
-from app.services.model_loader import ModelLoader
-from app.services.tray_engine import TrayInferenceEngine
-from app.services.cctv_engine import CCTVInferenceEngine
+from app.services.inference.loader import ModelLoader
+from app.services.inference.tray import TrayInferenceEngine
+from app.services.inference.cctv import CCTVInferenceEngine
 
 from YOLOwrapper import FallDownDetection as FallDownDetectionWrapper, YOLOWrapper
 
