@@ -1,9 +1,23 @@
 from __future__ import annotations
+import os
 import tempfile
 from pathlib import Path
 from urllib.parse import urlparse
 from google.cloud import storage
+from google.oauth2 import service_account
 import joblib
+
+_GCS_KEY_PATH = os.getenv(
+    "GOOGLE_APPLICATION_CREDENTIALS",
+    str(Path(__file__).resolve().parent.parent.parent.parent / "gcs-key.json")
+)
+
+def _get_storage_client() -> storage.Client:
+    """서비스 계정 인증으로 Storage Client 생성"""
+    if os.path.exists(_GCS_KEY_PATH):
+        credentials = service_account.Credentials.from_service_account_file(_GCS_KEY_PATH)
+        return storage.Client(credentials=credentials, project=credentials.project_id)
+    return storage.Client()
 
 def parse_gs_uri(gs_uri: str) -> tuple[str, str]:
     u = urlparse(gs_uri)
@@ -13,7 +27,7 @@ def parse_gs_uri(gs_uri: str) -> tuple[str, str]:
 
 def download_to(gs_uri: str, dest_path: str) -> str:
     bucket_name, blob_name = parse_gs_uri(gs_uri)
-    client = storage.Client()
+    client = _get_storage_client()
     bucket = client.bucket(bucket_name)
     blob = bucket.blob(blob_name)
     p = Path(dest_path)
@@ -24,7 +38,7 @@ def download_to(gs_uri: str, dest_path: str) -> str:
 
 def upload_to_gcs(local_path: str, bucket_name: str, blob_name: str) -> str:
     """로컬 파일을 GCS 버킷에 업로드"""
-    client = storage.Client()
+    client = _get_storage_client()
     bucket = client.bucket(bucket_name)
     blob = bucket.blob(blob_name)
     blob.upload_from_filename(local_path)
@@ -48,7 +62,7 @@ def load_latest_model(bucket_name: str, prefix: str, model_type: str, local_dir:
     import os
     import logging
 
-    client = storage.Client()
+    client = _get_storage_client()
     bucket = client.bucket(bucket_name)
     blobs = list(bucket.list_blobs(prefix=prefix))
 
@@ -89,7 +103,7 @@ def load_latest_model(bucket_name: str, prefix: str, model_type: str, local_dir:
 
 def upload_to_gcs(local_path: str, bucket_name: str, blob_name: str) -> str:
     """로컬 파일을 GCS 버킷에 업로드"""
-    client = storage.Client()
+    client = _get_storage_client()
     bucket = client.bucket(bucket_name)
     blob = bucket.blob(blob_name)
     blob.upload_from_filename(local_path)
@@ -101,7 +115,7 @@ def load_latest_model(bucket_name: str, prefix: str, model_type: str, local_dir:
     import os
     import logging
 
-    client = storage.Client()
+    client = _get_storage_client()
     bucket = client.bucket(bucket_name)
     blobs = list(bucket.list_blobs(prefix=prefix))
 
