@@ -68,7 +68,8 @@ class AuxiliaryTools:
             results = self.model.predict(
                 frame,
                 conf=self.conf_threshold,
-                verbose=False
+                verbose=False,
+                device=AI_DEVICE
             )
 
             boxes = results[0].boxes

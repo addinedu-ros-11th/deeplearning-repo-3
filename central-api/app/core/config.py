@@ -23,4 +23,8 @@ class Settings(BaseSettings):
     # Demo convenience
     CREATE_TABLES: int = 0  # 1이면 startup에서 create_all
 
+    AI_INFERENCE_HOST: str | None = None
+    AI_INFERENCE_UDP_PORT: int = 5005
+    STREAM_FPS: int = 15
+    
 settings = Settings()

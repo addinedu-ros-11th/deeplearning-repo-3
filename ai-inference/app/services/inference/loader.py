@@ -238,13 +238,13 @@ class ModelLoader:
 
         if scheme == "gs":
             try:
-                from google.cloud import storage
+                from app.util.gcs_utils import _get_storage_client
             except Exception as e:
-                raise RuntimeError("google-cloud-storage is required for gs:// uris") from e
+                raise RuntimeError("gcs_utils is required for gs:// uris") from e
 
             bucket = parsed.netloc
             blob_name = parsed.path.lstrip("/")
-            client = storage.Client()
+            client = _get_storage_client()
             b = client.bucket(bucket)
             blob = b.blob(blob_name)
             blob.download_to_filename(local_path)

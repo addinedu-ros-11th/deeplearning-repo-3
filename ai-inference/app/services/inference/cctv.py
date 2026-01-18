@@ -21,6 +21,11 @@ from app.services.video_processor import ensure_dir
 from app.util.gcs_utils import upload_to_gcs
 
 cctv_logger = logging.getLogger("cctv")
+if not cctv_logger.handlers:
+    handler = logging.StreamHandler()
+    handler.setFormatter(logging.Formatter('%(asctime)s [%(name)s] %(message)s', datefmt='%H:%M:%S'))
+    cctv_logger.addHandler(handler)
+    cctv_logger.setLevel(logging.INFO)
 
 _encoding_executor = ThreadPoolExecutor(max_workers=2, thread_name_prefix="ffmpeg-")
 _upload_executor = ThreadPoolExecutor(max_workers=2, thread_name_prefix="gcs-upload-")
@@ -71,6 +76,36 @@ class CCTVInferenceEngine:
 
         if not frames:
             return {"events": []}
+
+        return self._infer_batch(
+            frames, fps, width, height, store_code, device_code, gcs_bucket, now
+        )
+
+    def infer_realtime(self, payload: dict[str, Any]) -> dict[str, Any]:
+        """실시간 CCTV 추론을 수행"""
+        now = datetime.now(timezone.utc)
+
+        if self.mock:
+            return self._create_mock_result(now)
+
+        store_code = payload.get("store_code", "")
+        device_code = payload.get("device_code", "")
+        frames = payload.get("frames_numpy", [])
+        gcs_bucket = os.getenv("GCS_BUCKET_CCTV")
+
+        if not frames:
+            return {"events": []}
+
+        fps = 15  # UDP 스트리밍 기본 FPS
+        if frames:
+            height, width = frames[0].shape[:2]
+        else:
+            height, width = 0, 0
+
+        cctv_logger.debug(
+            f"실시간 추론: {store_code}/{device_code}, "
+            f"frames={len(frames)}, size={width}x{height}"
+        )
 
         return self._infer_batch(
             frames, fps, width, height, store_code, device_code, gcs_bucket, now
@@ -245,6 +280,7 @@ class CCTVInferenceEngine:
         """배치 방식 CCTV 추론을 수행합니다."""
         events = []
         tasks = []
+        cctv_logger.info(f"[MODELS] violence={self.violence_classifier is not None}, fall={self.fall_detector is not None}, auxiliary={self.auxiliary_detector is not None}")
 
         if self.violence_classifier:
             tasks.append(("VIOLENCE", self._run_violence_inference))
@@ -266,16 +302,20 @@ class CCTVInferenceEngine:
                 try:
                     result = future.result()
 
-                    if event_type == "VIOLENCE" and result["is_violence"]:
-                        detected = True
-                    elif event_type == "FALL" and result["is_fall"]:
-                        detected = True
-                    elif event_type == "WHEELCHAIR" and result["detected"]:
-                        detected = True
+                    if event_type == "VIOLENCE":
+                        detected = result.get("is_violence", False)
+                        cctv_logger.info(f"[RESULT] VIOLENCE: is_violence={detected}, confidence={result.get('confidence', 0):.3f}")
+                    elif event_type == "FALL":
+                        detected = result.get("is_fall", False)
+                        cctv_logger.info(f"[RESULT] FALL: is_fall={detected}, confidence={result.get('confidence', 0):.3f}")
+                    elif event_type == "WHEELCHAIR":
+                        detected = result.get("detected", False)
+                        cctv_logger.info(f"[RESULT] WHEELCHAIR: detected={detected}, confidence={result.get('confidence', 0):.3f}")
                     else:
                         detected = False
 
                     if detected:
+                        cctv_logger.info(f"[DETECTED] {event_type} 감지됨! -> _process_event 호출")
                         event = self._process_event(
                             event_type=event_type,
                             inference_result=result,
@@ -287,7 +327,7 @@ class CCTVInferenceEngine:
                         if event:
                             events.append(event)
                 except Exception as e:
-                    logging.warning(f"{event_type} 추론 실패: {e}")
+                    cctv_logger.error(f"{event_type} 추론 실패: {e}")
 
         return {"events": events}
 
@@ -307,14 +347,21 @@ class CCTVInferenceEngine:
 
         gcs_uri = None
 
+        if not gcs_bucket:
+            cctv_logger.warning(f"[GCS] GCS_BUCKET_CCTV 환경변수 미설정, 클립 업로드 스킵")
+
         if local_clip_path and os.path.exists(local_clip_path):
+            cctv_logger.info(f"[GCS] 클립 업로드 시도: {local_clip_path} -> {gcs_bucket}")
             timestamp = now.strftime("%Y%m%d_%H%M%S")
             event_name = "fall_down" if event_type == "FALL" else event_type.lower()
             blob_name = f"cctv_{event_name}_{timestamp}.mp4"
             try:
                 gcs_uri = upload_to_gcs(local_clip_path, gcs_bucket, blob_name)
+                cctv_logger.info(f"[GCS] 업로드 성공: {gcs_uri}")
             except Exception as e:
-                logging.warning(f"GCS 업로드 실패 ({event_type}): {e}")
+                cctv_logger.error(f"[GCS] 업로드 실패 ({event_type}): {e}")
+        else:
+            cctv_logger.warning(f"[GCS] 클립 파일 없음: {local_clip_path}")
 
         event_data = {
             "event_type": event_type,
@@ -329,6 +376,8 @@ class CCTVInferenceEngine:
             },
         }
 
+        cctv_logger.info(f"[EVENT] type={event_type}, clip={local_clip_path}, gcs_uri={gcs_uri}, bucket={gcs_bucket}")
+
         if gcs_uri and store_code and device_code:
             self._try_ingest_event(
                 store_code=store_code,
@@ -336,6 +385,8 @@ class CCTVInferenceEngine:
                 event_data=event_data,
                 gcs_uri=gcs_uri,
             )
+        else:
+            cctv_logger.warning(f"[EVENT] DB 저장 스킵: gcs_uri={gcs_uri}, store={store_code}, device={device_code}")
 
         return event_data
 
@@ -366,6 +417,13 @@ class CCTVInferenceEngine:
                 if prob >= self.violence_classifier.threshold and not violence_detected:
                     violence_detected = True
                     violence_frame = i
+
+        if probabilities:
+            max_prob = max(probabilities)
+            avg_prob = sum(probabilities) / len(probabilities)
+            cctv_logger.info(f"[VIOLENCE] 추론 완료: frames={len(frames)}, max_prob={max_prob:.3f}, avg_prob={avg_prob:.3f}, threshold={self.violence_classifier.threshold}, detected={violence_detected}")
+        else:
+            cctv_logger.info(f"[VIOLENCE] 추론 완료: frames={len(frames)}, probabilities 없음")
 
         if not probabilities:
             return {"is_violence": False, "confidence": 0.0, "local_clip_path": None, "extra_meta": {}}
@@ -423,6 +481,8 @@ class CCTVInferenceEngine:
                 fall_confidence = result.get("confidence", 0.0)
                 skip_frames = fps * CCTV_CONFIG.SKIP_AFTER_DETECTION_SECONDS
 
+        cctv_logger.info(f"[FALL] 추론 완료: frames={len(frames)}, detected={fall_detected}, confidence={fall_confidence:.3f}")
+
         if not fall_detected:
             return {"is_fall": False, "confidence": 0.0, "local_clip_path": None, "extra_meta": {}}
 
@@ -456,6 +516,7 @@ class CCTVInferenceEngine:
         detected = False
         detected_frame = None
         skip_frames = 0
+        detection_count = 0
 
         for i, frame in enumerate(frames):
             if skip_frames > 0:
@@ -464,10 +525,19 @@ class CCTVInferenceEngine:
 
             result = self.auxiliary_detector.process_frame(frame)
 
+            if result.get("num_objects", 0) > 0:
+                detection_count += 1
+                cctv_logger.info(
+                    f"[AUXILIARY] 프레임 {i}: 객체 감지됨 (num_objects={result.get('num_objects')})"
+                )
+
             if result.get("detected") and not detected:
                 detected = True
                 detected_frame = i
                 skip_frames = fps * CCTV_CONFIG.SKIP_AFTER_DETECTION_SECONDS
+                cctv_logger.info(f"[AUXILIARY] 최종 감지 확정! frame={i}")
+
+        cctv_logger.info(f"[AUXILIARY] 추론 완료: frames={len(frames)}, 객체감지횟수={detection_count}, 최종감지={detected}")
 
         if not detected:
             return {"detected": False, "confidence": 0.0, "local_clip_path": None, "extra_meta": {}}
@@ -481,7 +551,9 @@ class CCTVInferenceEngine:
         start_frame = max(0, detected_frame - clip_seconds * fps)
         end_frame = min(len(frames), detected_frame + clip_seconds * fps)
 
+        cctv_logger.info(f"[AUXILIARY] 클립 저장 시작: {local_clip_path}, frames={end_frame - start_frame}")
         self._encode_clip_sync(frames[start_frame:end_frame], fps, width, height, local_clip_path)
+        cctv_logger.info(f"[AUXILIARY] 클립 저장 완료: {local_clip_path}")
 
         return {
             "detected": True,
@@ -635,9 +707,10 @@ class CCTVInferenceEngine:
         gcs_uri: str,
     ) -> None:
         """CCTV 이벤트를 Central API에 저장합니다."""
+        cctv_logger.info(f"[DB저장] 시도: store={store_code}, device={device_code}, type={event_data.get('event_type')}, gcs_uri={gcs_uri}")
         try:
             cc = CentralClient()
-            cc.ingest_cctv_event(
+            result = cc.ingest_cctv_event(
                 store_code=store_code,
                 device_code=device_code,
                 event_type=event_data.get("event_type", "VIOLENCE"),
@@ -650,5 +723,6 @@ class CCTVInferenceEngine:
                 meta_json=event_data.get("meta_json"),
                 timeout_s=3.0,
             )
+            cctv_logger.info(f"[DB저장] 성공: event_id={result.get('event_id')}")
         except Exception as e:
-            logging.warning(f"Central API CCTV 이벤트 저장 실패: {e}")
+            cctv_logger.error(f"[DB저장] 실패: {e}")

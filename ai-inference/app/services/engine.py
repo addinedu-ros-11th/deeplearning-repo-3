@@ -17,6 +17,7 @@ from YOLOwrapper import FallDownDetection as FallDownDetectionWrapper, YOLOWrapp
 # 로거 설정
 scanner_logger = logging.getLogger("scanner")
 cctv_logger = logging.getLogger("cctv")
+udp_logger = logging.getLogger("udp_receiver")
 
 sys.modules['__main__'].FallDownDetection = FallDownDetectionWrapper
 sys.modules['__main__'].YOLOWrapper = YOLOWrapper
@@ -63,30 +64,49 @@ class InferenceEngine:
         self.fall_detector = None
         self.auxiliary_detector = None
 
+        # UDP 수신기 관련
+        self._udp_receiver = None
+        self._realtime_processor = None
+
     def startup_load(self) -> None:
         """모델들을 로드하고 서브 엔진들을 초기화합니다."""
+        scanner_logger.info("[engine] startup_load 시작")
+
+        # 캐시 디렉토리 생성
+        cache_dir = getattr(settings, "CACHE_DIR", "/tmp/ai-inference/cache")
+        try:
+            os.makedirs(cache_dir, exist_ok=True)
+            scanner_logger.info(f"[engine] 캐시 디렉토리 확인: {cache_dir}")
+        except Exception as e:
+            scanner_logger.warning(f"[engine] 캐시 디렉토리 생성 실패: {cache_dir}, 오류: {e}")
+
         if self.mock:
-            scanner_logger.info("[scanner] MOCK 모드 - 모델 로드 스킵")
+            scanner_logger.info("[engine] MOCK 모드 - 모델 로드 스킵")
             self._init_engines()
             return
 
         # 프로토타입 인덱스 로드
+        scanner_logger.info("[engine] 프로토타입 인덱스 로드 중...")
         self._model_loader.load_prototype_index()
         self.prototype_index = self._model_loader.prototype_index
         self.prototype_set_id = self._model_loader.prototype_set_id
 
         # CCTV 감지 모델 로드
+        scanner_logger.info("[engine] CCTV 감지 모델 로드 중...")
         self._model_loader.load_cctv_detectors()
         self.violence_classifier = self._model_loader.violence_classifier
         self.fall_detector = self._model_loader.fall_detector
         self.auxiliary_detector = self._model_loader.auxiliary_detector
 
         # YOLO 로드
+        scanner_logger.info("[engine] YOLO 모델 로드 중...")
         self._model_loader.load_yolo()
         self.yolo = self._model_loader.yolo
 
         # 서브 엔진 초기화
+        scanner_logger.info("[engine] 서브 엔진 초기화 중...")
         self._init_engines()
+        scanner_logger.info("[engine] startup_load 완료")
 
     def _init_engines(self) -> None:
         """서브 엔진들을 초기화합니다."""
@@ -127,3 +147,62 @@ class InferenceEngine:
         if self._cctv_engine is None:
             self._init_engines()
         return self._cctv_engine.infer(payload)
+
+    def startup_udp_receiver(self) -> None:
+        """UDP 프레임 수신기를 시작"""
+        if not settings.UDP_RECEIVER_ENABLED:
+            udp_logger.info("UDP 수신기 비활성화 (UDP_RECEIVER_ENABLED=0)")
+            return
+
+        try:
+            from app.services.udp_receiver import (
+                get_udp_receiver,
+                init_realtime_processor,
+            )
+
+            # UDP 수신기 시작
+            self._udp_receiver = get_udp_receiver()
+            self._udp_receiver.start()
+
+            # 실시간 CCTV 처리기 시작
+            if self._cctv_engine:
+                self._realtime_processor = init_realtime_processor(self._cctv_engine)
+                self._realtime_processor.start()
+                udp_logger.info("실시간 CCTV 처리기 시작됨")
+            else:
+                udp_logger.warning("CCTV 엔진이 초기화되지 않아 실시간 처리기를 시작하지 않음")
+
+            udp_logger.info(
+                f"UDP 수신기 시작: port={settings.UDP_RECEIVER_PORT}"
+            )
+
+        except Exception as e:
+            udp_logger.error(f"UDP 수신기 시작 실패: {e}")
+
+    def shutdown_udp_receiver(self) -> None:
+        """UDP 프레임 수신기를 중지"""
+        if self._realtime_processor:
+            self._realtime_processor.stop()
+            self._realtime_processor = None
+
+        if self._udp_receiver:
+            self._udp_receiver.stop()
+            self._udp_receiver = None
+
+        udp_logger.info("UDP 수신기 종료됨")
+
+    def get_udp_status(self) -> dict[str, Any]:
+        """UDP 수신기 상태를 반환"""
+        if not self._udp_receiver:
+            return {
+                "enabled": False,
+                "running": False,
+                "active_devices": [],
+            }
+
+        return {
+            "enabled": True,
+            "running": self._udp_receiver._running,
+            "port": settings.UDP_RECEIVER_PORT,
+            "active_devices": self._udp_receiver.list_active_devices(),
+        }

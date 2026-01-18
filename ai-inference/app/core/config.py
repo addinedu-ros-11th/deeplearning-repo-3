@@ -45,4 +45,9 @@ class Settings(BaseSettings):
     WORKER_ID: str = "ai-worker-1"             # 중앙 Job claim에 사용
     POLL_INTERVAL_S: float = 0.5                # job 없을 때 sleep
 
+    # UDP Frame Receiver
+    UDP_RECEIVER_ENABLED: int = 0               # 1이면 UDP 수신기 활성화
+    UDP_RECEIVER_PORT: int = 5005               # UDP 프레임 수신 포트
+    UDP_BUFFER_SIZE: int = 65535                # UDP 수신 버퍼 크기
+
 settings = Settings()
