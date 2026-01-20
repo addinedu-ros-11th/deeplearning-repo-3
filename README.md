@@ -3,8 +3,8 @@
 **딥러닝 프로젝트 3조 - 비전 기반 스마트 베이커리 운영 및 통합 관리 시스템**
 
 ## 📋 목차
-1. [주제 선정](# 주제 선정)
-2. [프로젝트 설계](# 프로젝트 설계)
+1. [주제 선정](#주제-선정)
+2. [프로젝트 설계](#프로젝트-설계)
 3. [기술 시연 및 소개](#기술 시연 및 소개)
 4. [빵 스캐너 주요 기술](빵 스캐너 주요 기술)
 5. [Trouble Shooting](Trouble Shooting)
@@ -53,16 +53,44 @@
 
 이 시스템은 진열된 빵을 자동으로 탐지하고 분류하여 계산 과정을 단순화하고
 
-CCTV 기반으로 매장 상황을 실시간 모니터링하여
+또한 CCTV 기반으로 매장 상황을 실시간 모니터링하여
 
 이상 행동을 사전에 감지할 수 있도록 설계되었습니다.
 
 이를 통해 대기 시간을 줄이고,
 
 매장 운영 효율과 고객 만족도를 동시에 향상시키고자 합니다.
+<img width="1920" height="1080" alt="Screenshot from 2026-01-20 17-15-33" src="https://github.com/user-attachments/assets/dd94eb1b-885c-4bb6-8eda-570984dc8688" />
 
 ## 프로젝트 설계
+### 고객 요구 기능
+<img width="1165" height="489" alt="Screenshot from 2026-01-20 17-18-00" src="https://github.com/user-attachments/assets/26c54fec-a16f-4ee1-b208-90ba34904c64" />
+
+### 빵스캐너 요구기능
+<img width="1165" height="403" alt="Screenshot from 2026-01-20 17-18-35" src="https://github.com/user-attachments/assets/0de1d68f-c242-43ca-9a20-0c6b2e13f288" />
+
+### CCTV 요구기능
+<img width="1165" height="403" alt="Screenshot from 2026-01-20 17-18-40" src="https://github.com/user-attachments/assets/51c190d1-15dc-4a5e-a24c-eae9e5a2daf5" />
+
+### 대시보드 요구기능
+<img width="1165" height="403" alt="Screenshot from 2026-01-20 17-18-42" src="https://github.com/user-attachments/assets/99ed2b61-7ba5-45a4-8427-07f4d20067e5" />
+
+
+
 ## 기술 시연 및 소개
+### 테스트 환경
+<img width="1154" height="490" alt="Screenshot from 2026-01-20 17-22-06" src="https://github.com/user-attachments/assets/064b1c10-ec8c-4a0f-909a-af28b777b33a" />
+
+### 빵 결제 시연 
+
+![정상결제시연](https://github.com/user-attachments/assets/d0b1dd1b-42e8-4a79-92ab-7e29f29c637d)
+
+
+### 빵 스캔 플로우 차트
+<img width="1920" height="1080" alt="Screenshot from 2026-01-16 09-37-30" src="https://github.com/user-attachments/assets/78650a8f-b88c-48d2-a433-0bdd8e6bd894" />
+
+
+
 ## 빵 스캐너 주요 기술
 ## Trouble Shooting
 
@@ -77,11 +105,7 @@ CCTV 기반으로 매장 상황을 실시간 모니터링하여
 
 
 
-<img width="1920" height="1080" alt="Screenshot from 2026-01-16 09-37-06" src="https://github.com/user-attachments/assets/7f5fc40f-2529-4215-bd62-5e9ab95b0eb5" />
-<img width="1920" height="1080" alt="Screenshot from 2026-01-16 09-37-12" src="https://github.com/user-attachments/assets/e49c18e2-5fd6-4424-bd46-a381aec4124b" />
-<img width="1920" height="1080" alt="Screenshot from 2026-01-16 09-37-23" src="https://github.com/user-attachments/assets/4fbf32f0-e027-47b3-880e-a0da412505b3" />
 
-<img width="1920" height="1080" alt="Screenshot from 2026-01-16 09-37-30" src="https://github.com/user-attachments/assets/78650a8f-b88c-48d2-a433-0bdd8e6bd894" />
 
 <img width="1920" height="1080" alt="Screenshot from 2026-01-16 09-37-38" src="https://github.com/user-attachments/assets/6554aa49-0bbb-4941-922f-12af7d9cb67d" />
 <img width="1920" height="1080" alt="Screenshot from 2026-01-16 09-37-46" src="https://github.com/user-attachments/assets/f5be026b-7e9a-429f-b00c-f02d7033128a" />
