@@ -24,14 +24,16 @@
 하지만 방문객 수에 비해 매장 규모와 인력이 부족한 경우가 많아,
 
 피크타임에는 1~2시간 이상 대기하며 주문하는 장면도 흔히 볼 수 있습니다.
+<img width="1920" height="1080" alt="Screenshot from 2026-01-20 09-37-38" src="https://github.com/user-attachments/assets/ac4a1f37-f7b4-48cd-b90a-c9d9f5000c6f" />
 
-<img width="1920" height="1080" alt="Screenshot from 2026-01-16 09-36-22" src="https://github.com/user-attachments/assets/a36b5c57-9596-4291-8c68-f9cf25a6087a" />
+
 
 이러한 대기 시간은
 
 고객에게는 불편함을,
 
 업주에게는 매출 손실로 이어질 수 있습니다.
+<img width="1920" height="1080" alt="Screenshot from 2026-01-20 09-37-52" src="https://github.com/user-attachments/assets/250c7823-8dba-4c0f-8547-e9a147e770fc" />
 
 
 계산 대기 줄을 줄이기 위해 인력을 추가로 채용하려 해도,
@@ -41,6 +43,23 @@
 직원 교육에 많은 시간과 비용이 필요합니다.
 
 또한 무작정 인원을 늘리는 것 역시 현실적인 해결책이 아닙니다.
+
+더불어 계산 업무에 인력이 집중되면서 매장 내 도난, 혼잡, 고객 안전 등과 같은 이상 상황에 즉각 대응할 수 있는 인원이 부족해지는 문제도 함께 발생하고 있습니다.
+
+<img width="1920" height="1080" alt="Screenshot from 2026-01-20 09-37-58" src="https://github.com/user-attachments/assets/dd2e1c7f-eb1a-4628-a614-ee95ae017f39" />
+
+
+이에 저희는 **비전 기술을 활용한 ‘빵 스캐너’**를 제안합니다.
+
+이 시스템은 진열된 빵을 자동으로 탐지하고 분류하여 계산 과정을 단순화하고
+
+CCTV 기반으로 매장 상황을 실시간 모니터링하여
+
+이상 행동을 사전에 감지할 수 있도록 설계되었습니다.
+
+이를 통해 대기 시간을 줄이고,
+
+매장 운영 효율과 고객 만족도를 동시에 향상시키고자 합니다.
 
 ## 프로젝트 설계
 ## 기술 시연 및 소개
@@ -57,21 +76,6 @@
 
 
 
-<img width="1920" height="1080" alt="Screenshot from 2026-01-16 09-36-35" src="https://github.com/user-attachments/assets/a300ca33-c802-41c6-a6f6-cb4925eece38" />
-
-<img width="1920" height="1080" alt="Screenshot from 2026-01-16 09-36-43" src="https://github.com/user-attachments/assets/422b6c0b-87c7-4413-8fe3-2b269c89b51d" />
-<img width="1920" height="1080" alt="Screenshot from 2026-01-16 09-37-00" src="https://github.com/user-attachments/assets/b26eaa5b-3cdb-43b8-8e93-fb292450ff36" />
-이에 저희는 **비전 기술을 활용한 ‘빵 스캐너’**를 제안합니다.
-
-이 시스템은 진열된 빵을 자동으로 탐지하고 분류하여 계산 과정을 단순화하고
-
-CCTV 기반으로 매장 상황을 실시간 모니터링하여
-
-이상 행동을 사전에 감지할 수 있도록 설계되었습니다.
-
-이를 통해 대기 시간을 줄이고,
-
-매장 운영 효율과 고객 만족도를 동시에 향상시키고자 합니다.
 
 <img width="1920" height="1080" alt="Screenshot from 2026-01-16 09-37-06" src="https://github.com/user-attachments/assets/7f5fc40f-2529-4215-bd62-5e9ab95b0eb5" />
 <img width="1920" height="1080" alt="Screenshot from 2026-01-16 09-37-12" src="https://github.com/user-attachments/assets/e49c18e2-5fd6-4424-bd46-a381aec4124b" />
