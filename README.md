@@ -1,57 +1,77 @@
-<img width="1920" height="1080" alt="Screenshot from 2026-01-16 09-43-01" src="https://github.com/user-attachments/assets/1e093841-9656-4203-86f1-d52dbed8ffea" /># 🥐 [Bake Sight] Vision-Based Smart Bakery Operations Platform
+># 🥐 [Bake Sight] Vision-Based Smart Bakery Operations Platform
 
 **딥러닝 프로젝트 3조 - 비전 기반 스마트 베이커리 운영 및 통합 관리 시스템**
 
 ## 📋 목차
-1. [프로젝트 설명](#프로젝트-개요)
-2. [설계](#시스템-아키텍처)
-3. [데이터 전처리와 모델 학습](#폴더-구조)
-4. [시연](#설치-및-실행)
-5. [향후 개선 사항](#주요-기능)
-6. [API 엔드포인트](#api-엔드포인트)
-7. [데이터베이스 스키마](#데이터베이스-스키마)
-8. [개발 가이드](#개발-가이드)
-9. [배포 가이드 (DEPLOYMENT.md)](#배포-가이드)
+1. [주제 선정](# 주제 선정)
+2. [프로젝트 설계](# 프로젝트 설계)
+3. [기술 시연 및 소개](#기술 시연 및 소개)
+4. [빵 스캐너 주요 기술](빵 스캐너 주요 기술)
+5. [Trouble Shooting](Trouble Shooting)
+
 
 ---
 
-## 프로젝트 개요
-
-
-
--  다양하고 많은 빵 종류:
-유사한 외형을 가진 다품종 베이커리 메뉴의 특성상, 육안 식별 한계로 인한 계산 실수와 결제 시간 지연이 발생함.
-
--  피크타임의 처리 지연:
-특정 시간대 주문 폭주 시 대면 결제 라인에 병목 현상이 발생하여, 대기 시간 증가 및 매장 회전율 저하를 초래함.
-
--  실시간 인력 지원 불가:
-계산대에 묶인 고정 인력만으로는 매장 내 이동약자 지원이나 이상 상황 발생 시 즉각적이고 유연한 현장 대응이 불가능함.
-
-## 프로젝트 목표
-
-
-
-
-- 트레이 위 상품 자동 탐지/분류:
-  딥러닝 객체 탐지 모델을 통해 트레이 위 다중 상품을 실시간으로 정확히 식별하여 계산 대기 없는 무인 결제 시스템 구축.
-
-- 폭행, 이동약자 감지, 넘어짐 등 이벤트 감지:
-  CCTV 영상을 분석하여 폭행·낙상 등 안전사고와 이동약자(휠체어 등) 방문을 즉각 포착, 골든타임 내 능동적 인력 투입 지원.
-
-- 통합 대시보드로 운영지표 시각화:
-  실시간 매출 현황과 매장 내 이상 징후 알림을 시각화된 대시보드로 제공하여 효율적인 매장 관리 및 신속한 의사결정 지원. 
+## 주제 선정
 
 <img width="1920" height="1080" alt="Screenshot from 2026-01-16 09-34-53" src="https://github.com/user-attachments/assets/06465ea7-68ea-4f6e-890b-d83eedbdf4db" />
 
+
+‘빵지순례’라는 말이 생길 정도로
+
+사람들은 일상 속에서 맛있는 음식을 찾아다니는 문화에 익숙해졌습니다.
+
+하지만 방문객 수에 비해 매장 규모와 인력이 부족한 경우가 많아,
+
+피크타임에는 1~2시간 이상 대기하며 주문하는 장면도 흔히 볼 수 있습니다.
+
 <img width="1920" height="1080" alt="Screenshot from 2026-01-16 09-36-22" src="https://github.com/user-attachments/assets/a36b5c57-9596-4291-8c68-f9cf25a6087a" />
+
+이러한 대기 시간은
+
+고객에게는 불편함을,
+
+업주에게는 매출 손실로 이어질 수 있습니다.
+
+
+계산 대기 줄을 줄이기 위해 인력을 추가로 채용하려 해도,
+
+대형 베이커리의 경우 빵 종류가 많아
+
+직원 교육에 많은 시간과 비용이 필요합니다.
+
+또한 무작정 인원을 늘리는 것 역시 현실적인 해결책이 아닙니다.
+
+## 프로젝트 설계
+## 기술 시연 및 소개
+## 빵 스캐너 주요 기술
+## Trouble Shooting
+
+
+
+
+
+
+
+
+
 
 
 <img width="1920" height="1080" alt="Screenshot from 2026-01-16 09-36-35" src="https://github.com/user-attachments/assets/a300ca33-c802-41c6-a6f6-cb4925eece38" />
 
 <img width="1920" height="1080" alt="Screenshot from 2026-01-16 09-36-43" src="https://github.com/user-attachments/assets/422b6c0b-87c7-4413-8fe3-2b269c89b51d" />
 <img width="1920" height="1080" alt="Screenshot from 2026-01-16 09-37-00" src="https://github.com/user-attachments/assets/b26eaa5b-3cdb-43b8-8e93-fb292450ff36" />
+이에 저희는 **비전 기술을 활용한 ‘빵 스캐너’**를 제안합니다.
 
+이 시스템은 진열된 빵을 자동으로 탐지하고 분류하여 계산 과정을 단순화하고
+
+CCTV 기반으로 매장 상황을 실시간 모니터링하여
+
+이상 행동을 사전에 감지할 수 있도록 설계되었습니다.
+
+이를 통해 대기 시간을 줄이고,
+
+매장 운영 효율과 고객 만족도를 동시에 향상시키고자 합니다.
 
 <img width="1920" height="1080" alt="Screenshot from 2026-01-16 09-37-06" src="https://github.com/user-attachments/assets/7f5fc40f-2529-4215-bd62-5e9ab95b0eb5" />
 <img width="1920" height="1080" alt="Screenshot from 2026-01-16 09-37-12" src="https://github.com/user-attachments/assets/e49c18e2-5fd6-4424-bd46-a381aec4124b" />
