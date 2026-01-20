@@ -3,11 +3,11 @@
 **딥러닝 프로젝트 3조 - 비전 기반 스마트 베이커리 운영 및 통합 관리 시스템**
 
 ## 📋 목차
-1. [주제 선정](#주제-선정)
-2. [프로젝트 설계](#프로젝트-설계)
-3. [기술 시연 및 소개](#기술-시연-및-소개)
-4. [빵 스캐너 주요 기술](빵-스캐너-주요-기술)
-5. [Trouble Shooting](Trouble-Shooting)
+1. [주제 선정](#01.주제-선정)
+2. [프로젝트 설계](#02.프로젝트-설계)
+3. [기술 시연 및 소개](#03.기술-시연-및-소개)
+4. [빵 스캐너 주요 기술](#04.빵-스캐너-주요-기술)
+5. [Trouble Shooting](#05.Trouble-Shooting)
 
 
 
@@ -16,7 +16,7 @@
 
 ---
 
-## 주제 선정
+## 01.주제 선정
 
 <img width="1920" height="1080" alt="Screenshot from 2026-01-16 09-34-53" src="https://github.com/user-attachments/assets/06465ea7-68ea-4f6e-890b-d83eedbdf4db" />
 
@@ -61,12 +61,14 @@
 
 이상 행동을 사전에 감지할 수 있도록 설계되었습니다.
 
-이를 통해 대기 시간을 줄이고,
-
-매장 운영 효율과 고객 만족도를 동시에 향상시키고자 합니다.
 <img width="1920" height="1080" alt="Screenshot from 2026-01-20 17-15-33" src="https://github.com/user-attachments/assets/dd94eb1b-885c-4bb6-8eda-570984dc8688" />
 
-## 프로젝트 설계
+
+이를 통해 대기 시간을 줄이고,
+
+**매장 운영 효율**과 **고객 만족도**를 동시에 **향상**시키고자 합니다.
+
+## 02.프로젝트 설계
 ### 고객 요구 기능
 <img width="1165" height="489" alt="Screenshot from 2026-01-20 17-18-00" src="https://github.com/user-attachments/assets/26c54fec-a16f-4ee1-b208-90ba34904c64" />
 
@@ -81,7 +83,7 @@
 
 
 
-## 기술 시연 및 소개
+## 03.기술 시연 및 소개
 ### 테스트 환경
 <img width="1154" height="490" alt="Screenshot from 2026-01-20 17-22-06" src="https://github.com/user-attachments/assets/064b1c10-ec8c-4a0f-909a-af28b777b33a" />
 
@@ -95,8 +97,8 @@
 
 
 
-## 빵 스캐너 주요 기술
-## Trouble Shooting
+## 04.빵 스캐너 주요 기술
+## 05.Trouble Shooting
 
 
 
