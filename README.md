@@ -1,4 +1,5 @@
-># 🥐 [Bake Sight] Vision-Based Smart Bakery Operations Platform
+># 🥐 [Bake Sight] 
+**Vision-Based Smart Bakery Operations Platform**
 
 **딥러닝 프로젝트 3조 - 비전 기반 스마트 베이커리 운영 및 통합 관리 시스템**
 
@@ -12,7 +13,7 @@
 
 
 
-더 자세한 내용 ppt에서 만나 보실수 있습니다.click ->>[**🥐🥐🥐** ](https://www.canva.com/design/DAG8-Zmcdlo/UDOH503owk026jmjTULwXA/view?utm_content=DAG8-Zmcdlo&utm_campaign=designshare&utm_medium=link2&utm_source=uniquelinks&utlId=h0223e34169)
+더 자세한 내용은 ppt에서 보실수 있습니다..click ->>[**🥐🥐🥐** ](https://www.canva.com/design/DAG8-Zmcdlo/UDOH503owk026jmjTULwXA/view?utm_content=DAG8-Zmcdlo&utm_campaign=designshare&utm_medium=link2&utm_source=uniquelinks&utlId=h0223e34169)
 
 ---
 
@@ -95,6 +96,9 @@
 ### 빵 스캔 플로우 차트
 <img width="1920" height="1080" alt="Screenshot from 2026-01-16 09-37-30" src="https://github.com/user-attachments/assets/78650a8f-b88c-48d2-a433-0bdd8e6bd894" />
 
+### CCTV 감지 시연 
+
+<img width="1920" height="1080" alt="Screenshot from 2026-01-16 09-37-38" src="https://github.com/user-attachments/assets/6554aa49-0bbb-4941-922f-12af7d9cb67d" />
 
 
 ## 04.빵 스캐너 주요 기술
@@ -113,64 +117,62 @@
 
 
 
-<img width="1920" height="1080" alt="Screenshot from 2026-01-16 09-37-38" src="https://github.com/user-attachments/assets/6554aa49-0bbb-4941-922f-12af7d9cb67d" />
+개발환경 (사용 기술 스택)
 <img width="1920" height="1080" alt="Screenshot from 2026-01-16 09-37-46" src="https://github.com/user-attachments/assets/f5be026b-7e9a-429f-b00c-f02d7033128a" />
+Hardware Architecture
 <img width="1920" height="1080" alt="Screenshot from 2026-01-16 09-38-01" src="https://github.com/user-attachments/assets/5d8fd099-b777-4b37-b5c1-1fd59288ebc0" />
+ERD
 <img width="1920" height="1080" alt="Screenshot from 2026-01-16 09-38-27" src="https://github.com/user-attachments/assets/45c1b30f-5c29-4ba8-8afb-57980ddce04b" />
-<img width="1920" height="1080" alt="Screenshot from 2026-01-16 09-38-48" src="https://github.com/user-attachments/assets/fd230aa8-081c-4b05-9a96-cebc3a4f3bca" />
 
-<img width="1920" height="1080" alt="Screenshot from 2026-01-16 09-40-24" src="https://github.com/user-attachments/assets/3fd363d1-8b04-47ee-8c1b-19532d182432" />
+빵 분류방식 
 <img width="1920" height="1080" alt="Screenshot from 2026-01-16 09-41-13" src="https://github.com/user-attachments/assets/ee80b5ac-6340-4009-b73f-c0b1ebf2de60" />
+빵 분류방식 2
 <img width="1920" height="1080" alt="Screenshot from 2026-01-16 09-41-16" src="https://github.com/user-attachments/assets/c6fd7649-525d-4754-9e28-a7c4812aa88d" />
+빵 분류방식 3
 <img width="1920" height="1080" alt="Screenshot from 2026-01-16 09-41-45" src="https://github.com/user-attachments/assets/5a817aae-2b86-4028-bced-6900cfe700c2" />
-<img width="1920" height="1080" alt="Screenshot from 2026-01-16 09-42-03" src="https://github.com/user-attachments/assets/caa774ef-b5bb-4d42-a247-3e8484644a8f" />
-<img width="1920" height="1080" alt="Screenshot from 2026-01-16 09-42-09" src="https://github.com/user-attachments/assets/cf49fbef-1617-41ce-b42e-59f3dfe43c0e" />
-<img width="1920" height="1080" alt="Screenshot from 2026-01-16 09-42-16" src="https://github.com/user-attachments/assets/1948db0b-7250-4101-82d6-118159ca3a5c" />
-<img width="1920" height="1080" alt="Screenshot from 2026-01-16 09-43-01" src="https://github.com/user-attachments/assets/549b04c9-1d3f-43ff-b271-da027a07dd93" />
+
+
+
+
+빵스 개선사항
 <img width="1920" height="1080" alt="Screenshot from 2026-01-16 09-43-07" src="https://github.com/user-attachments/assets/00439a55-b3c0-4b2c-b3d6-ee41f186bee6" />
-<img width="1920" height="1080" alt="Screenshot from 2026-01-16 09-46-31" src="https://github.com/user-attachments/assets/3870f1ba-af77-491b-99fe-d0ae913bf0d7" />
-<img width="1920" height="1080" alt="Screenshot from 2026-01-16 09-49-57" src="https://github.com/user-attachments/assets/de75eb18-353e-471c-9484-aaa813ffa1e4" />
-<img width="1920" height="1080" alt="Screenshot from 2026-01-16 09-51-42" src="https://github.com/user-attachments/assets/eafecbd2-8146-4644-b74c-6f3940930eb6" />
-<img width="1920" height="1080" alt="Screenshot from 2026-01-16 09-51-57" src="https://github.com/user-attachments/assets/020ae66d-6b52-4592-9847-70ee025ad782" />
-<img width="1920" height="1080" alt="Screenshot from 2026-01-16 09-52-01" src="https://github.com/user-attachments/assets/a9808fef-ef4f-43f9-9299-2651f8994d10" />
-<img width="1920" height="1080" alt="Screenshot from 2026-01-16 09-52-04" src="https://github.com/user-attachments/assets/ac40d521-131d-42b2-a77a-12d3f82e4ffd" />
-<img width="1920" height="1080" alt="Screenshot from 2026-01-16 09-52-10" src="https://github.com/user-attachments/assets/647b8392-4d3d-4caa-b801-9111bc252295" />
-<img width="1920" height="1080" alt="Screenshot from 2026-01-16 09-52-12" src="https://github.com/user-attachments/assets/cd8b6490-5f2d-47be-9329-49aa198c1325" />
-<img width="1920" height="1080" alt="Screenshot from 2026-01-16 09-52-13" src="https://github.com/user-attachments/assets/28fb3caa-5095-4fd9-93df-d420e992e296" />
-<img width="1920" height="1080" alt="Screenshot from 2026-01-16 09-52-26" src="https://github.com/user-attachments/assets/f7a8d622-b5e0-464f-ad6e-cd130603c015" />
-<img width="1920" height="1080" alt="Screenshot from 2026-01-16 09-52-28" src="https://github.com/user-attachments/assets/6e0d2878-fd03-4b48-bd10-9a1b6224460f" />
-<img width="1920" height="1080" alt="Screenshot from 2026-01-16 09-52-30" src="https://github.com/user-attachments/assets/df392d25-ca92-470c-bb46-c1cb1149dcb8" />
-<img width="1920" height="1080" alt="Screenshot from 2026-01-16 09-52-36" src="https://github.com/user-attachments/assets/316ae642-fe07-4e12-a1aa-75c77678e63f" />
+
+
+전체 화면 구성 대시보드 
 <img width="1920" height="1080" alt="Screenshot from 2026-01-16 09-52-43" src="https://github.com/user-attachments/assets/09386074-0e5c-4f97-80de-8f862bddd1d3" />
 <img width="1920" height="1080" alt="Screenshot from 2026-01-16 09-52-44" src="https://github.com/user-attachments/assets/790de5b7-989b-41e9-ad3b-288a14a4f508" />
 <img width="1920" height="1080" alt="Screenshot from 2026-01-16 09-52-46" src="https://github.com/user-attachments/assets/4d338294-2a3e-4f79-8dd0-9a6cfae6ac46" />
+빵 데이터 감지 모델 
 <img width="1920" height="1080" alt="Screenshot from 2026-01-16 09-52-54" src="https://github.com/user-attachments/assets/372156c6-12a4-47b8-b005-8e5f80bec7eb" />
 
 <img width="1920" height="1080" alt="Screenshot from 2026-01-16 09-52-55" src="https://github.com/user-attachments/assets/b0ea052d-3805-4907-b402-9ae394b6263d" />
 <img width="1920" height="1080" alt="Screenshot from 2026-01-16 09-52-57" src="https://github.com/user-attachments/assets/833645d2-b2ce-422b-99c5-11fe63972454" />
+cvat 라벨링 협업툴 
 <img width="1920" height="1080" alt="Screenshot from 2026-01-16 09-53-09" src="https://github.com/user-attachments/assets/4e14a0fe-f47e-41af-99e9-0607b52ceeb7" />
-<img width="1920" height="1080" alt="Screenshot from 2026-01-16 09-53-12" src="https://github.com/user-attachments/assets/d496f3fd-0645-4394-b29d-0ac573c24e42" />
-<img width="1920" height="1080" alt="Screenshot from 2026-01-16 09-53-13" src="https://github.com/user-attachments/assets/275ec30d-518d-4178-9f7d-fd5a056a309f" />
-<img width="1920" height="1080" alt="Screenshot from 2026-01-16 09-53-15" src="https://github.com/user-attachments/assets/64193f6f-f07d-4dc7-a533-0c92590e8168" />
-<img width="1920" height="1080" alt="Screenshot from 2026-01-16 09-53-16" src="https://github.com/user-attachments/assets/adf947f8-35c0-40ec-af37-f2f8f3d0694f" />
-<img width="1920" height="1080" alt="Screenshot from 2026-01-16 09-53-17" src="https://github.com/user-attachments/assets/dbf2731b-a6ba-4ead-8784-7e15fad1418c" />
-<img width="1920" height="1080" alt="Screenshot from 2026-01-16 09-53-17-1" src="https://github.com/user-attachments/assets/cd56c80a-7343-4b3c-9615-92aa5dd0681d" />
-<img width="1920" height="1080" alt="Screenshot from 2026-01-16 09-53-18" src="https://github.com/user-attachments/assets/526729a4-9faf-40d2-8469-d822ce0c0d1d" />
+빵스 주요기술 
+
+
 <img width="1920" height="1080" alt="Screenshot from 2026-01-16 09-53-39" src="https://github.com/user-attachments/assets/d49bc835-0e07-4423-a7c5-9918ceee5bac" />
-<img width="1920" height="1080" alt="Screenshot from 2026-01-16 09-53-43" src="https://github.com/user-attachments/assets/0593e5c1-ea3d-4a8c-af46-f7ae66434470" />
+트러블 슈팅 
+
+빵분류
 <img width="1920" height="1080" alt="Screenshot from 2026-01-16 09-53-45" src="https://github.com/user-attachments/assets/b84a35cd-dc72-45d6-bfed-e93bc167e39a" />
+넘어짐
 <img width="1920" height="1080" alt="Screenshot from 2026-01-16 09-53-49" src="https://github.com/user-attachments/assets/301cc69d-3f85-4223-bc2d-2e8a49e18046" />
 <img width="1920" height="1080" alt="Screenshot from 2026-01-16 09-53-50" src="https://github.com/user-attachments/assets/eb6a9506-dde1-4483-bf1d-c52218673b60" />
 <img width="1920" height="1080" alt="Screenshot from 2026-01-16 09-53-51" src="https://github.com/user-attachments/assets/95f955ef-acf1-4479-84ea-0a314fcc0282" />
 <img width="1920" height="1080" alt="Screenshot from 2026-01-16 09-53-52" src="https://github.com/user-attachments/assets/ec2fad35-4d4a-4300-a997-66aa4a74e90f" />
 <img width="1920" height="1080" alt="Screenshot from 2026-01-16 09-53-54" src="https://github.com/user-attachments/assets/f0f01eba-c9a0-4bc6-9327-11c71053be3c" />
 <img width="1920" height="1080" alt="Screenshot from 2026-01-16 09-53-55" src="https://github.com/user-attachments/assets/7114258f-7aa1-48c7-ab75-61d50226b74e" />
+이동약자
 <img width="1920" height="1080" alt="Screenshot from 2026-01-16 09-53-58" src="https://github.com/user-attachments/assets/c68ec49f-c595-4d4a-9dd4-f36f870650d6" />
-<img width="1920" height="1080" alt="Screenshot from 2026-01-16 09-53-59" src="https://github.com/user-attachments/assets/4dba86b0-247d-4981-974e-b771bf46a5ca" />
+폭행감지
 <img width="1920" height="1080" alt="Screenshot from 2026-01-16 09-54-01" src="https://github.com/user-attachments/assets/6195575e-b1f7-4d1c-a23d-af627e5bb10b" />
-
+협업툴
 <img width="1920" height="1080" alt="Screenshot from 2026-01-16 09-54-18" src="https://github.com/user-attachments/assets/8cfb0b63-9a8d-4fd8-8601-97b5af6efc12" />
+기대효과
 <img width="1920" height="1080" alt="Screenshot from 2026-01-16 09-54-05" src="https://github.com/user-attachments/assets/41d2c85a-4cc0-4cd6-bafd-d28196fd3f15" />
+협업툴
 <img width="1920" height="1080" alt="Screenshot from 2026-01-16 09-54-09" src="https://github.com/user-attachments/assets/f8cfcd1e-267c-4720-ae3e-74a7715ae355" />
 <img width="1920" height="1080" alt="Screenshot from 2026-01-16 09-54-10" src="https://github.com/user-attachments/assets/cb092f1e-41e6-42ff-9abe-49d53a44938e" />
 
@@ -181,6 +183,8 @@
 
 
 <img width="1920" height="1080" alt="Screenshot from 2026-01-16 09-54-18" src="https://github.com/user-attachments/assets/023a8e7b-c4c5-46f6-8e90-f93284f5f2ba" />
+
+팀원소개 
 
 
 <img width="1920" height="1080" alt="Screenshot from 2026-01-16 09-54-41" src="https://github.com/user-attachments/assets/7e9a9563-ce2c-4486-ba9f-674885a6e17a" />
