@@ -104,15 +104,21 @@
 
 ![넘어짐감지](https://github.com/user-attachments/assets/9406f0bf-4e06-4f3d-ab89-cb775ef3ffd2)
 
+(선정 모델, 각종 성능 지표)
+
 ## 폭행 감지 모델
 
 ![폭행시연](https://github.com/user-attachments/assets/b19198f4-a58e-44eb-b72f-cab206852695)
+
+(선정 모델, 각종 성능 지표)
   
 
 
 ## 이동약자 감지 모델 
 
 ![202601211308-ezgif com-video-to-gif-converter (1)](https://github.com/user-attachments/assets/ac23a2cb-0c0e-46c0-9fbf-ac9f0b20af48)
+
+(선정 모델, 각종 성능 지표)
 
 
 
@@ -132,12 +138,8 @@
 
 
 
-개발환경 (사용 기술 스택)
-<img width="1920" height="1080" alt="Screenshot from 2026-01-16 09-37-46" src="https://github.com/user-attachments/assets/f5be026b-7e9a-429f-b00c-f02d7033128a" />
-Hardware Architecture
-<img width="1920" height="1080" alt="Screenshot from 2026-01-16 09-38-01" src="https://github.com/user-attachments/assets/5d8fd099-b777-4b37-b5c1-1fd59288ebc0" />
-ERD
-<img width="1920" height="1080" alt="Screenshot from 2026-01-16 09-38-27" src="https://github.com/user-attachments/assets/45c1b30f-5c29-4ba8-8afb-57980ddce04b" />
+
+
 
 빵 분류방식 
 <img width="1920" height="1080" alt="Screenshot from 2026-01-16 09-41-13" src="https://github.com/user-attachments/assets/ee80b5ac-6340-4009-b73f-c0b1ebf2de60" />
@@ -183,21 +185,22 @@ cvat 라벨링 협업툴
 <img width="1920" height="1080" alt="Screenshot from 2026-01-16 09-53-58" src="https://github.com/user-attachments/assets/c68ec49f-c595-4d4a-9dd4-f36f870650d6" />
 폭행감지
 <img width="1920" height="1080" alt="Screenshot from 2026-01-16 09-54-01" src="https://github.com/user-attachments/assets/6195575e-b1f7-4d1c-a23d-af627e5bb10b" />
-협업툴
-<img width="1920" height="1080" alt="Screenshot from 2026-01-16 09-54-18" src="https://github.com/user-attachments/assets/8cfb0b63-9a8d-4fd8-8601-97b5af6efc12" />
-기대효과
-<img width="1920" height="1080" alt="Screenshot from 2026-01-16 09-54-05" src="https://github.com/user-attachments/assets/41d2c85a-4cc0-4cd6-bafd-d28196fd3f15" />
+
+
+
+### 기술 스택
+
+<img width="1920" height="1080" alt="Screenshot from 2026-01-16 09-37-46" src="https://github.com/user-attachments/assets/f5be026b-7e9a-429f-b00c-f02d7033128a" />
+
+
 협업툴
 <img width="1920" height="1080" alt="Screenshot from 2026-01-16 09-54-09" src="https://github.com/user-attachments/assets/f8cfcd1e-267c-4720-ae3e-74a7715ae355" />
 <img width="1920" height="1080" alt="Screenshot from 2026-01-16 09-54-10" src="https://github.com/user-attachments/assets/cb092f1e-41e6-42ff-9abe-49d53a44938e" />
-
-
-
-
-
-
-
 <img width="1920" height="1080" alt="Screenshot from 2026-01-16 09-54-18" src="https://github.com/user-attachments/assets/023a8e7b-c4c5-46f6-8e90-f93284f5f2ba" />
+
+기대효과
+<img width="2059" height="799" alt="Screenshot from 2026-01-21 17-59-43" src="https://github.com/user-attachments/assets/7c6f08ae-482a-4c76-b1c9-7d49261481d7" />
+
 
 팀원소개 
 
@@ -213,15 +216,6 @@ cvat 라벨링 협업툴
 
 
 
-
-### 기술 스택
-* **AI / Vision:** PyTorch, YOLOv8/v11, OpenCV
-* **Backend API:** FastAPI + Uvicorn (Cloud Run)
-* **Inference Server:** Python (Compute Engine GPU VM)
-* **Database:** MySQL or PostgreSQL
-* **Cloud:** Google Cloud Platform (GCP)
-* **Frontend:** (선택 시 기입: PyQt6, React, etc.)
-
 ### 주요 특징
 * **캐셔리스 결제:** 탑뷰 카메라 기반 상품 탐지·세분류 및 가격 DB 자동 매칭
 * **매장 관제 분석:** CCTV 영상을 통한 인원수, 대기열, 테이블 회전율 실시간 트래킹
@@ -231,18 +225,8 @@ cvat 라벨링 협업툴
 ---
 
 ## 시스템 아키텍처
+Hardware Architecture
+<img width="1920" height="1080" alt="Screenshot from 2026-01-16 09-38-01" src="https://github.com/user-attachments/assets/5d8fd099-b777-4b37-b5c1-1fd59288ebc0" />
+ERD
+<img width="1920" height="1080" alt="Screenshot from 2026-01-16 09-38-27" src="https://github.com/user-attachments/assets/45c1b30f-5c29-4ba8-8afb-57980ddce04b" />
 
-```text
-┌────────────────────────┐      ┌───────────────────────────┐
-│   Inference Server     │      │       Central API         │
-│ (GCP Compute Engine)   │      │    (GCP Cloud Run)        │
-│ ┌──────────────────┐   │      │  ┌─────────────────────┐  │
-│ │ AI Model (YOLO)  │   │ HTTP │  │ Business Logic      │  │
-│ │ CCTV/Tray Stream │◄──┼──────┼─►│ Database Management  │  │
-│ └──────────────────┘   │      │  └──────────┬──────────┘  │
-└────────────────────────┘      └─────────────┼─────────────┘
-                                              ▼
-┌────────────────────────┐      ┌───────────────────────────┐
-│      Frontend UI       │      │      Cloud Database       │
-│  (Admin Dashboard)     │◄─────┤     (SQL Instances)       │
-└────────────────────────┘      └───────────────────────────┘
