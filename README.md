@@ -100,6 +100,21 @@
 
 <img width="1920" height="1080" alt="Screenshot from 2026-01-16 09-37-38" src="https://github.com/user-attachments/assets/6554aa49-0bbb-4941-922f-12af7d9cb67d" />
 
+## 넘어짐 감지 모델
+
+![넘어짐감지](https://github.com/user-attachments/assets/9406f0bf-4e06-4f3d-ab89-cb775ef3ffd2)
+
+## 폭행 감지 모델
+
+![폭행시연](https://github.com/user-attachments/assets/b19198f4-a58e-44eb-b72f-cab206852695)
+  
+
+
+## 이동약자 감지 모델 
+
+![202601211308-ezgif com-video-to-gif-converter (1)](https://github.com/user-attachments/assets/ac23a2cb-0c0e-46c0-9fbf-ac9f0b20af48)
+
+
 
 ## 04.빵 스캐너 주요 기술
 ## 05.Trouble Shooting
