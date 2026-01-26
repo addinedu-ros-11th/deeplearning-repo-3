@@ -1,4 +1,4 @@
-># 🥐 [Bake Sight] 
+# 🥐 [Bake Sight] 
 **Vision-Based Smart Bakery Operations Platform**
 
 **딥러닝 프로젝트 3조 - 비전 기반 스마트 베이커리 운영 및 통합 관리 시스템**
@@ -38,7 +38,7 @@
 
 <img width="1920" height="1080" alt="Screenshot from 2026-01-20 09-37-52" src="https://github.com/user-attachments/assets/250c7823-8dba-4c0f-8547-e9a147e770fc" />
 
-또한 빵 스캐너로 결제 대기열을 해소함과 동시에, **Vision AI 기반 CCTV 시스템**으로 매장 내 사각지대를 메웠습니다.
+- 또한 빵 스캐너로 결제 대기열을 해소함과 동시에, **Vision AI 기반 CCTV 시스템**으로 매장 내 사각지대를 메웠습니다.
 
 
 <img width="1920" height="1080" alt="Screenshot from 2026-01-20 09-37-58" src="https://github.com/user-attachments/assets/dd2e1c7f-eb1a-4628-a614-ee95ae017f39" />
@@ -77,6 +77,15 @@
 ### 빵 스캔 플로우 차트
 <img width="1920" height="1080" alt="Screenshot from 2026-01-16 09-37-30" src="https://github.com/user-attachments/assets/78650a8f-b88c-48d2-a433-0bdd8e6bd894" />
 
+### 빵 분류 방법
+
+<img width="1924" height="966" alt="Screenshot from 2026-01-26 13-16-56" src="https://github.com/user-attachments/assets/09a44344-2cc2-47c7-8009-326fba25b10d" />
+
+<img width="1924" height="966" alt="Screenshot from 2026-01-26 13-17-07" src="https://github.com/user-attachments/assets/1151d691-b11c-4a11-a677-3aa278579156" />
+
+<img width="1924" height="966" alt="Screenshot from 2026-01-26 13-17-00" src="https://github.com/user-attachments/assets/7b4c315c-d053-4d2d-9166-937d7d8eed51" />
+
+
 ### CCTV 감지 시연 
 
 <img width="1920" height="1080" alt="Screenshot from 2026-01-16 09-37-38" src="https://github.com/user-attachments/assets/6554aa49-0bbb-4941-922f-12af7d9cb67d" />
@@ -104,30 +113,25 @@
 
 
 ## 04.빵 스캐너 주요 기술
+
+### DETECTION
+<img width="1159" height="571" alt="Screenshot from 2026-01-26 13-26-39" src="https://github.com/user-attachments/assets/19813f7d-908a-4541-bbd7-bb589c5589eb" />
+<img width="1159" height="541" alt="Screenshot from 2026-01-26 13-27-27" src="https://github.com/user-attachments/assets/fbac1ba0-9f2d-4441-a763-a637d3d8f7de" />
+[지표자리
+### CLASSIFICATION
+<img width="1159" height="295" alt="Screenshot from 2026-01-26 13-29-02" src="https://github.com/user-attachments/assets/3641d098-8152-4fe6-b556-e9b23d30945f" />
+
+
 ## 05.Trouble Shooting
+빵 문제해결
+<img width="869" height="509" alt="Screenshot from 2026-01-26 13-29-40" src="https://github.com/user-attachments/assets/a05218ae-aef8-46fb-8f02-a290df4ce824" />
+
+넘어짐 문제해결
+<img width="1078" height="509" alt="Screenshot from 2026-01-26 13-31-12" src="https://github.com/user-attachments/assets/1910262f-6f74-4641-8dd8-ed388fefac98" />
+
+폭행 문제해결
 
 
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-빵 분류방식 
-<img width="1920" height="1080" alt="Screenshot from 2026-01-16 09-41-13" src="https://github.com/user-attachments/assets/ee80b5ac-6340-4009-b73f-c0b1ebf2de60" />
-빵 분류방식 2
-<img width="1920" height="1080" alt="Screenshot from 2026-01-16 09-41-16" src="https://github.com/user-attachments/assets/c6fd7649-525d-4754-9e28-a7c4812aa88d" />
-빵 분류방식 3
-<img width="1920" height="1080" alt="Screenshot from 2026-01-16 09-41-45" src="https://github.com/user-attachments/assets/5a817aae-2b86-4028-bced-6900cfe700c2" />
 
 
 
