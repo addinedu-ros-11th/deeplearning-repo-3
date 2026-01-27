@@ -56,7 +56,6 @@
 
 ### 주요 특징
 * **캐셔리스 결제:** 탑뷰 카메라 기반 상품 탐지·세분류 및 가격 DB 자동 매칭
-* **매장 관제 분석:** CCTV 영상을 통한 인원수, 대기열, 테이블 회전율 실시간 트래킹
 * **보안 및 안전:** 미결제 반출 탐지 및 매장 내 이상 행동(넘어짐 등) 감지 이벤트화
 * **통합 대시보드:** 매출 통계, 실시간 재고 추정 및 운영 지표 시각화
 
@@ -82,6 +81,7 @@
 
 
 ## 03.기술 시연 및 소개
+
 ### 테스트 환경
 <img width="1154" height="490" alt="Screenshot from 2026-01-20 17-22-06" src="https://github.com/user-attachments/assets/064b1c10-ec8c-4a0f-909a-af28b777b33a" />
 
@@ -104,12 +104,12 @@
 <img width="1924" height="966" alt="Screenshot from 2026-01-26 13-17-00" src="https://github.com/user-attachments/assets/7b4c315c-d053-4d2d-9166-937d7d8eed51" />
 
 
-### CCTV 감지 시연 
+## 03-1.CCTV 감지 시연 
 
 <img width="1085" height="539" alt="Screenshot from 2026-01-26 19-02-11" src="https://github.com/user-attachments/assets/bdd33c72-9690-451e-9fee-61b4947657fe" />
 
 
-## 넘어짐 감지 모델
+### 넘어짐 감지 모델
 
 ![넘어짐감지](https://github.com/user-attachments/assets/9406f0bf-4e06-4f3d-ab89-cb775ef3ffd2)
 
@@ -118,7 +118,7 @@
 <img width="463" height="76" alt="Screenshot from 2026-01-26 19-04-47" src="https://github.com/user-attachments/assets/9a25b55d-aabc-4cf5-a845-1e61bb4f663f" />
 
 
-## 폭행 감지 모델
+### 폭행 감지 모델
 
 ![폭행시연](https://github.com/user-attachments/assets/b19198f4-a58e-44eb-b72f-cab206852695)
 
@@ -128,7 +128,7 @@
 
 
 
-## 이동약자 감지 모델 
+### 이동약자 감지 모델 
 
 ![202601211308-ezgif com-video-to-gif-converter (1)](https://github.com/user-attachments/assets/ac23a2cb-0c0e-46c0-9fbf-ac9f0b20af48)
 
@@ -137,8 +137,20 @@
 <img width="387" height="485" alt="Screenshot from 2026-01-26 19-07-31" src="https://github.com/user-attachments/assets/144a947e-02d3-4316-89f7-386e3b4567df"/>
 <img width="583" height="570" alt="Screenshot from 2026-01-26 19-07-14" src="https://github.com/user-attachments/assets/d341c635-fcc3-49c6-aba6-f1e2afc85a70" />
 
-## 관리자 대시 보드
+## 03-2.관리자 대시 보드
 
+### 대시보드 검색
+
+![대시보드검색](https://github.com/user-attachments/assets/ebb931ae-2068-40d0-ac29-f7e794b507ce)
+
+### 대시보드 알림
+
+![대시보드알림](https://github.com/user-attachments/assets/75146f67-8068-4599-9d2c-b00cc112cef0)
+
+### 대시보드 전체 시연 
+
+![전체대시보드시연](https://github.com/user-attachments/assets/5fa64c1d-2f8b-46ef-9365-11325349db8d)
+![알림창클립](https://github.com/user-attachments/assets/da70fdaf-3d5c-4709-a72a-8d9ca207553e)
 
 
 ## 04.빵 스캐너 주요 기술
