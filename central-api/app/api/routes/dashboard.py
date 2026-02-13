@@ -2,7 +2,7 @@ from datetime import datetime, timedelta, timezone
 from fastapi import APIRouter, Depends, HTTPException
 from sqlalchemy import text, func
 from sqlalchemy.orm import Session
-from app.api.deps import get_db
+from app.api.deps import get_db, StoreDep
 from app.core.security import require_admin_key
 from app.db.models import Store, OrderHdr, TraySession, Review, OrderStatus
 from app.schemas.dashboard import (
@@ -27,16 +27,12 @@ def utc_to_kst(utc_dt: datetime) -> datetime:
 
 @router.get("/dashboards/top-menu", response_model=list[TopMenuRow])
 def top_menu(
-    store_code: str,
+    store: StoreDep,
     from_: datetime,
     to: datetime,
     limit: int = 10,
     db: Session = Depends(get_db),
 ):
-    store = db.query(Store).filter(Store.store_code == store_code).first()
-    if not store:
-        raise HTTPException(status_code=404, detail="store not found")
-
     sql = text("""
         SELECT
           ol.item_id AS item_id,
@@ -61,14 +57,10 @@ def top_menu(
 
 @router.get("/dashboards/kpis", response_model=list[KPIRow])
 def get_kpis(
-    store_code: str,
+    store: StoreDep,
     db: Session = Depends(get_db),
 ):
     """오늘의 KPI 데이터 조회 (KST 기준)"""
-    store = db.query(Store).filter(Store.store_code == store_code).first()
-    if not store:
-        raise HTTPException(status_code=404, detail="store not found")
-
     # KST 기준 오늘/어제 날짜 범위 -> UTC로 변환
     kst_now = get_kst_now()
     kst_today = kst_now.replace(hour=0, minute=0, second=0, microsecond=0)
@@ -152,14 +144,10 @@ def get_kpis(
 
 @router.get("/dashboards/hourly-revenue", response_model=list[HourlyRevenueRow])
 def get_hourly_revenue(
-    store_code: str,
+    store: StoreDep,
     db: Session = Depends(get_db),
 ):
     """오늘의 시간대별 매출 조회 (KST 기준)"""
-    store = db.query(Store).filter(Store.store_code == store_code).first()
-    if not store:
-        raise HTTPException(status_code=404, detail="store not found")
-
     # KST 기준 오늘 날짜 범위 -> UTC로 변환하여 DB 쿼리
     kst_now = get_kst_now()
     kst_today = kst_now.replace(hour=0, minute=0, second=0, microsecond=0)
@@ -200,14 +188,10 @@ def get_hourly_revenue(
 
 @router.get("/dashboards/analytics/weekly", response_model=list[WeeklyDataRow])
 def get_weekly_data(
-    store_code: str,
+    store: StoreDep,
     db: Session = Depends(get_db),
 ):
     """최근 7일간 일별 매출 및 고객 수 조회 (KST 기준)"""
-    store = db.query(Store).filter(Store.store_code == store_code).first()
-    if not store:
-        raise HTTPException(status_code=404, detail="store not found")
-
     # KST 기준 이번 주 일요일부터 토요일까지 (달력 순서)
     kst_now = get_kst_now()
     kst_today = kst_now.replace(hour=0, minute=0, second=0, microsecond=0)
@@ -252,14 +236,10 @@ def get_weekly_data(
 
 @router.get("/dashboards/analytics/hourly-customers", response_model=list[HourlyCustomersRow])
 def get_hourly_customers(
-    store_code: str,
+    store: StoreDep,
     db: Session = Depends(get_db),
 ):
     """오늘의 시간대별 고객 수 조회 (KST 기준)"""
-    store = db.query(Store).filter(Store.store_code == store_code).first()
-    if not store:
-        raise HTTPException(status_code=404, detail="store not found")
-
     # KST 기준 오늘 날짜 범위 -> UTC로 변환하여 DB 쿼리
     kst_now = get_kst_now()
     kst_today = kst_now.replace(hour=0, minute=0, second=0, microsecond=0)
@@ -296,14 +276,10 @@ def get_hourly_customers(
 
 @router.get("/dashboards/analytics/categories", response_model=list[CategoryDataRow])
 def get_category_data(
-    store_code: str,
+    store: StoreDep,
     db: Session = Depends(get_db),
 ):
     """카테고리별 판매 비율 조회 (최근 7일, KST 기준)"""
-    store = db.query(Store).filter(Store.store_code == store_code).first()
-    if not store:
-        raise HTTPException(status_code=404, detail="store not found")
-
     # KST 기준 날짜 범위 -> UTC로 변환
     kst_now = get_kst_now()
     kst_today = kst_now.replace(hour=0, minute=0, second=0, microsecond=0)
@@ -361,14 +337,10 @@ def get_category_data(
 
 @router.get("/dashboards/analytics/stats", response_model=list[AnalyticsStatRow])
 def get_analytics_stats(
-    store_code: str,
+    store: StoreDep,
     db: Session = Depends(get_db),
 ):
     """주간 분석 통계 조회 (KST 기준)"""
-    store = db.query(Store).filter(Store.store_code == store_code).first()
-    if not store:
-        raise HTTPException(status_code=404, detail="store not found")
-
     # KST 기준 날짜 계산
     kst_now = get_kst_now()
     kst_today = kst_now.replace(hour=0, minute=0, second=0, microsecond=0)

@@ -20,6 +20,8 @@ class Settings(BaseSettings):
 
     PROTOTYPE_INDEX_PATH: str | None = None
     PROTOTYPE_INDEX_GCS_URI: str | None = None
+    PROTOTYPE_INDEX_URI: str | None = None
+    PROTOTYPE_INDEX_META_URI: str | None = None
 
     CACHE_DIR: str = "/opt/ai-inference/cache"
 

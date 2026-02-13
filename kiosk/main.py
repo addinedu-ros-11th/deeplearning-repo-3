@@ -3,6 +3,13 @@ from PyQt6.QtCore import QTimer
 from thread.server_worker import APIWorker
 import logging
 
+# 로깅 설정
+logging.basicConfig(
+    level=logging.INFO,
+    format='%(asctime)s [%(levelname)s] %(message)s',
+    datefmt='%H:%M:%S'
+)
+
 from model.cart_data import CartData
 from ui.home_screen import HomeScreen
 from ui.scan_screen import ScanScreen

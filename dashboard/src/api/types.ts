@@ -50,6 +50,7 @@ export interface CctvEventClipOut {
   clip_id: number;
   event_id: number;
   clip_gcs_uri: string;
+  clip_signed_url?: string;
   clip_start_at: string;
   clip_end_at: string;
   created_at: string;
